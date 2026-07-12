@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Backend Infrastructure API
-  version: 0.1.0
-  description: Shared HTTP contracts for the reusable Go backend foundation.
+  version: 0.2.0
+  description: HTTP contract for the reusable Go backend foundation.
 servers:
   - url: /
 paths:
@@ -37,14 +37,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthEnvelope"
         "503":
-          description: One or more required dependencies are unavailable.
-          headers:
-            X-Request-ID:
-              $ref: "#/components/headers/X-Request-ID"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
+          $ref: "#/components/responses/ServiceUnavailable"
   /metrics:
     get:
       operationId: getMetrics
@@ -60,7 +53,345 @@ paths:
             text/plain:
               schema:
                 type: string
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Exchange credentials for an access and refresh token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication succeeded.
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh token cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/refresh:
+    post:
+      operationId: refreshAccessToken
+      summary: Rotate a refresh token and issue a new token pair
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Token rotation succeeded.
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly refresh token cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPairEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke the supplied refresh token
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Logout succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+  /api/v1/users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Return the authenticated user
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users:
+    post:
+      operationId: createUser
+      summary: Create a user
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/users/{userID}/active:
+    patch:
+      operationId: setUserActive
+      summary: Activate or deactivate a user
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetActiveRequest"
+      responses:
+        "200":
+          description: User activation state updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/roles:
+    get:
+      operationId: listRoles
+      summary: List roles
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        "200":
+          description: Role collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RolesEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/permissions:
+    get:
+      operationId: listPermissions
+      summary: List permissions
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        "200":
+          description: Permission collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PermissionsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/{userID}/roles/{roleID}:
+    post:
+      operationId: assignUserRole
+      summary: Assign a role to a user
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/RoleID"
+      responses:
+        "200":
+          description: Role assigned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/roles/{roleID}/permissions/{permissionID}:
+    post:
+      operationId: grantRolePermission
+      summary: Grant a permission to a role
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoleID"
+        - $ref: "#/components/parameters/PermissionID"
+      responses:
+        "200":
+          description: Permission granted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/audit-logs:
+    get:
+      operationId: listAuditLogs
+      summary: Query audit events
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: request_id
+          in: query
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: result
+          in: query
+          schema:
+            type: string
+            enum: [success, failure]
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated audit event collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPageEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/task-executions:
+    post:
+      operationId: submitTaskExecution
+      summary: Submit a registered task type for asynchronous execution
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskSubmissionRequest"
+      responses:
+        "202":
+          description: Task accepted for asynchronous execution.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /api/v1/task-executions/{executionID}:
+    get:
+      operationId: getTaskExecution
+      summary: Return persisted task execution state
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ExecutionID"
+      responses:
+        "200":
+          description: Task execution state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskExecutionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    accessCookie:
+      type: apiKey
+      in: cookie
+      name: access_token
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
   headers:
     X-Request-ID:
       description: Correlation identifier accepted from trusted clients or generated by the server.
@@ -68,7 +399,87 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+  parameters:
+    UserID:
+      name: userID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RoleID:
+      name: roleID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PermissionID:
+      name: permissionID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ExecutionID:
+      name: executionID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
   responses:
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: The authenticated user lacks permission.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Conflict:
+      description: The request conflicts with an existing resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: A required dependency is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
     PaginatedResponse:
       description: A successful paginated collection response.
       content:
@@ -87,6 +498,17 @@ components:
           type: string
           enum: [success]
         data: {}
+    ErrorEnvelope:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+          description: Stable application error code retained for frontend compatibility.
+        msg:
+          type: string
+          description: Safe public error message.
+        data: {}
     HealthEnvelope:
       allOf:
         - $ref: "#/components/schemas/SuccessEnvelope"
@@ -101,17 +523,6 @@ components:
         status:
           type: string
           enum: [ok]
-    ErrorEnvelope:
-      type: object
-      required: [code, msg, data]
-      properties:
-        code:
-          type: integer
-          description: Stable application error code retained for frontend compatibility.
-        msg:
-          type: string
-          description: Safe public error message.
-        data: {}
     PaginationMeta:
       type: object
       required: [page, size, total, pages, has_next, has_prev]
@@ -152,3 +563,274 @@ components:
               items: {}
             meta:
               $ref: "#/components/schemas/PaginationMeta"
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+    RefreshRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+    TokenPair:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+        refresh_token:
+          type: string
+          minLength: 1
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          format: int64
+          minimum: 1
+    TokenPairEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/TokenPair"
+    User:
+      type: object
+      required: [id, email, username, display_name, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        display_name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/User"
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, username, password]
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 8
+        display_name:
+          type: string
+    SetActiveRequest:
+      type: object
+      additionalProperties: false
+      required: [is_active]
+      properties:
+        is_active:
+          type: boolean
+    Role:
+      type: object
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+    Permission:
+      type: object
+      required: [id, name, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+    RolesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Role"
+    PermissionsEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Permission"
+    BooleanEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties:
+                type: boolean
+    AuditEvent:
+      type: object
+      required: [id, request_id, action, result, resource_type, metadata, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        actor_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        result:
+          type: string
+          enum: [success, failure]
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        ip_address:
+          type: string
+          format: ip
+        user_agent:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    AuditPageEnvelope:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+          enum: [success]
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuditEvent"
+            meta:
+              $ref: "#/components/schemas/PaginationMeta"
+    TaskSubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [task_type, payload]
+      properties:
+        definition_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+          minLength: 1
+        payload:
+          type: object
+          additionalProperties: true
+        idempotency_key:
+          type: string
+          minLength: 1
+        max_retries:
+          type: integer
+          minimum: 0
+          default: 3
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          default: 300
+        unique_for_seconds:
+          type: integer
+          minimum: 0
+          default: 0
+        process_after_seconds:
+          type: integer
+          minimum: 0
+          default: 0
+    TaskExecution:
+      type: object
+      required: [id, task_type, payload, status, attempt, processed_rows]
+      properties:
+        id:
+          type: string
+          format: uuid
+        definition_id:
+          type: string
+          format: uuid
+        task_type:
+          type: string
+        queue_id:
+          type: string
+        idempotency_key:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        attempt:
+          type: integer
+          minimum: 0
+        processed_rows:
+          type: integer
+          format: int64
+          minimum: 0
+        error_summary:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+    TaskExecutionEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/TaskExecution"
