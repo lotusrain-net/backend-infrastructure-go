@@ -33,3 +33,18 @@ func TestMigrationSetIsCompleteAndReversible(t *testing.T) {
 		}
 	}
 }
+
+func TestSeedDownExplicitlyRemovesEverySeedPermissionReference(t *testing.T) {
+	contents, err := os.ReadFile("000004_seed_rbac.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(contents)
+	referenceDelete := "DELETE FROM role_permissions\nWHERE permission_id IN"
+	if !strings.Contains(text, referenceDelete) {
+		t.Fatalf("seed down must explicitly remove all permission references before deleting seed permissions")
+	}
+	if strings.Index(text, referenceDelete) > strings.Index(text, "DELETE FROM permissions") {
+		t.Fatal("role permission references must be deleted before seed permissions")
+	}
+}

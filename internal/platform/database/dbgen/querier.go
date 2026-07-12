@@ -16,6 +16,9 @@ type Querier interface {
 	CreateTaskDefinition(ctx context.Context, arg CreateTaskDefinitionParams) (TaskDefinition, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteUser(ctx context.Context, id pgtype.UUID) error
+	GetPermissionByName(ctx context.Context, name string) (Permission, error)
+	GetRoleByName(ctx context.Context, name string) (Role, error)
 	GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExecution, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
@@ -28,6 +31,7 @@ type Querier interface {
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) error
 	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 }
 
 var _ Querier = (*Queries)(nil)

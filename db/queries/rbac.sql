@@ -16,6 +16,12 @@ INSERT INTO role_permissions (role_id, permission_id)
 VALUES ($1, $2)
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
+-- name: GetRoleByName :one
+SELECT * FROM roles WHERE name = $1;
+
+-- name: GetPermissionByName :one
+SELECT * FROM permissions WHERE name = $1;
+
 -- name: ListRoles :many
 SELECT * FROM roles ORDER BY name;
 

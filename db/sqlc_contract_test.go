@@ -35,3 +35,21 @@ func TestSQLCConfigurationAndQueriesExist(t *testing.T) {
 		}
 	}
 }
+
+func TestSQLCDriftGateUsesPinnedGeneratorAndTemporaryOutput(t *testing.T) {
+	contents, err := os.ReadFile("verify-sqlc.ps1")
+	if err != nil {
+		t.Fatalf("read verify-sqlc.ps1: %v", err)
+	}
+	text := string(contents)
+	for _, fragment := range []string{
+		"github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0",
+		"[System.IO.Path]::GetTempPath()",
+		"Get-FileHash",
+		"SQLC generated output is stale",
+	} {
+		if !strings.Contains(text, fragment) {
+			t.Errorf("verify-sqlc.ps1 does not contain %q", fragment)
+		}
+	}
+}

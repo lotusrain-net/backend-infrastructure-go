@@ -24,7 +24,7 @@ CREATE TABLE task_executions (
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     status TEXT NOT NULL DEFAULT 'queued',
     attempt INTEGER NOT NULL DEFAULT 0,
-    processed_count BIGINT NOT NULL DEFAULT 0,
+    processed_rows BIGINT NOT NULL DEFAULT 0,
     error_summary TEXT,
     queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
@@ -34,7 +34,7 @@ CREATE TABLE task_executions (
     CONSTRAINT task_executions_type_not_blank CHECK (btrim(task_type) <> ''),
     CONSTRAINT task_executions_status_valid CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
     CONSTRAINT task_executions_attempt_valid CHECK (attempt >= 0),
-    CONSTRAINT task_executions_processed_count_valid CHECK (processed_count >= 0),
+    CONSTRAINT task_executions_processed_rows_valid CHECK (processed_rows >= 0),
     CONSTRAINT task_executions_idempotency_unique UNIQUE (task_type, idempotency_key)
 );
 

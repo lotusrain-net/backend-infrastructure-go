@@ -67,7 +67,7 @@ type TaskExecution struct {
 	Payload        []byte             `json:"payload"`
 	Status         string             `json:"status"`
 	Attempt        int32              `json:"attempt"`
-	ProcessedCount int64              `json:"processed_count"`
+	ProcessedRows  int64              `json:"processed_rows"`
 	ErrorSummary   pgtype.Text        `json:"error_summary"`
 	QueuedAt       pgtype.Timestamptz `json:"queued_at"`
 	StartedAt      pgtype.Timestamptz `json:"started_at"`

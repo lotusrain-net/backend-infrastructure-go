@@ -55,7 +55,7 @@ func (q *Queries) CreateTaskDefinition(ctx context.Context, arg CreateTaskDefini
 const createTaskExecution = `-- name: CreateTaskExecution :one
 INSERT INTO task_executions (definition_id, task_type, queue_id, idempotency_key, payload)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_count, error_summary, queued_at, started_at, finished_at, created_at, updated_at
+RETURNING id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at
 `
 
 type CreateTaskExecutionParams struct {
@@ -84,7 +84,7 @@ func (q *Queries) CreateTaskExecution(ctx context.Context, arg CreateTaskExecuti
 		&i.Payload,
 		&i.Status,
 		&i.Attempt,
-		&i.ProcessedCount,
+		&i.ProcessedRows,
 		&i.ErrorSummary,
 		&i.QueuedAt,
 		&i.StartedAt,
@@ -96,7 +96,7 @@ func (q *Queries) CreateTaskExecution(ctx context.Context, arg CreateTaskExecuti
 }
 
 const getTaskExecution = `-- name: GetTaskExecution :one
-SELECT id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_count, error_summary, queued_at, started_at, finished_at, created_at, updated_at FROM task_executions WHERE id = $1
+SELECT id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at FROM task_executions WHERE id = $1
 `
 
 func (q *Queries) GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExecution, error) {
@@ -111,7 +111,7 @@ func (q *Queries) GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExe
 		&i.Payload,
 		&i.Status,
 		&i.Attempt,
-		&i.ProcessedCount,
+		&i.ProcessedRows,
 		&i.ErrorSummary,
 		&i.QueuedAt,
 		&i.StartedAt,
@@ -159,18 +159,18 @@ func (q *Queries) ListEnabledTaskSchedules(ctx context.Context) ([]TaskSchedule,
 const updateTaskExecutionStatus = `-- name: UpdateTaskExecutionStatus :exec
 UPDATE task_executions
 SET status = $2, started_at = $3, finished_at = $4, error_summary = $5,
-    processed_count = $6, attempt = $7, updated_at = NOW()
+    processed_rows = $6, attempt = $7, updated_at = NOW()
 WHERE id = $1
 `
 
 type UpdateTaskExecutionStatusParams struct {
-	ID             pgtype.UUID        `json:"id"`
-	Status         string             `json:"status"`
-	StartedAt      pgtype.Timestamptz `json:"started_at"`
-	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
-	ErrorSummary   pgtype.Text        `json:"error_summary"`
-	ProcessedCount int64              `json:"processed_count"`
-	Attempt        int32              `json:"attempt"`
+	ID            pgtype.UUID        `json:"id"`
+	Status        string             `json:"status"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	ErrorSummary  pgtype.Text        `json:"error_summary"`
+	ProcessedRows int64              `json:"processed_rows"`
+	Attempt       int32              `json:"attempt"`
 }
 
 func (q *Queries) UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) error {
@@ -180,7 +180,7 @@ func (q *Queries) UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskE
 		arg.StartedAt,
 		arg.FinishedAt,
 		arg.ErrorSummary,
-		arg.ProcessedCount,
+		arg.ProcessedRows,
 		arg.Attempt,
 	)
 	return err

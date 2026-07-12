@@ -15,7 +15,7 @@ SELECT * FROM task_executions WHERE id = $1;
 -- name: UpdateTaskExecutionStatus :exec
 UPDATE task_executions
 SET status = $2, started_at = $3, finished_at = $4, error_summary = $5,
-    processed_count = $6, attempt = $7, updated_at = NOW()
+    processed_rows = $6, attempt = $7, updated_at = NOW()
 WHERE id = $1;
 
 -- name: ListEnabledTaskSchedules :many
