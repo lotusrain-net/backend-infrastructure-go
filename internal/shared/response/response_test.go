@@ -83,6 +83,30 @@ func TestWriteErrorKeepsCodeNumericForFrontendCompatibility(t *testing.T) {
 	}
 }
 
+func TestWriteBuffersBeforeCommittingStatusAndFallsBackOnEncodingFailure(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	response.Write(recorder, http.StatusCreated, make(chan int))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if got := recorder.Body.String(); !contains(got, `"code":500`) || contains(got, `"code":201`) {
+		t.Fatalf("body = %q", got)
+	}
+}
+
+func TestWriteErrorDropsUnencodableErrorData(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	err := apperror.New(51000, "unsafe payload", http.StatusBadGateway, nil)
+	err.Data = make(chan int)
+
+	response.WriteError(recorder, err)
+
+	if recorder.Code != http.StatusInternalServerError || !contains(recorder.Body.String(), `"code":500`) {
+		t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestWriteErrorDoesNotLeakUnknownError(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	response.WriteError(recorder, errors.New("secret database message"))

@@ -10,6 +10,7 @@ paths:
     get:
       operationId: getLiveness
       summary: Check whether the API process is alive
+      security: []
       responses:
         "200":
           description: The process is alive.
@@ -24,6 +25,7 @@ paths:
     get:
       operationId: getReadiness
       summary: Check whether required dependencies are ready
+      security: []
       responses:
         "200":
           description: All required dependencies are ready.
@@ -47,6 +49,7 @@ paths:
     get:
       operationId: getMetrics
       summary: Export Prometheus metrics
+      security: []
       responses:
         "200":
           description: Metrics in Prometheus text exposition format.
@@ -65,6 +68,13 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+  responses:
+    PaginatedResponse:
+      description: A successful paginated collection response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PaginatedResponse"
   schemas:
     SuccessEnvelope:
       type: object
@@ -75,7 +85,7 @@ components:
           description: HTTP success status repeated for client compatibility.
         msg:
           type: string
-          const: success
+          enum: [success]
         data: {}
     HealthEnvelope:
       allOf:
@@ -90,7 +100,7 @@ components:
       properties:
         status:
           type: string
-          const: ok
+          enum: [ok]
     ErrorEnvelope:
       type: object
       required: [code, msg, data]
@@ -124,3 +134,21 @@ components:
           type: boolean
         has_prev:
           type: boolean
+    PaginatedResponse:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+          enum: [success]
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items: {}
+            meta:
+              $ref: "#/components/schemas/PaginationMeta"

@@ -1,6 +1,7 @@
 package response
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 
@@ -33,7 +34,17 @@ func WriteError(writer http.ResponseWriter, err error) {
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {
+	var buffer bytes.Buffer
+	if err := json.NewEncoder(&buffer).Encode(value); err != nil {
+		status = http.StatusInternalServerError
+		buffer.Reset()
+		_ = json.NewEncoder(&buffer).Encode(ErrorEnvelope{
+			Code: http.StatusInternalServerError,
+			Msg:  "internal server error",
+			Data: nil,
+		})
+	}
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.WriteHeader(status)
-	_ = json.NewEncoder(writer).Encode(value)
+	_, _ = writer.Write(buffer.Bytes())
 }

@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -21,9 +22,24 @@ type RouterOptions struct {
 	Metrics   http.Handler
 	CORS      CORSConfig
 	RateLimit *RateLimitConfig
+	Register  func(chi.Router)
 }
 
-func NewRouter(options RouterOptions) http.Handler {
+func NewRouter(options RouterOptions) (chi.Router, error) {
+	if options.Readiness == nil {
+		return nil, fmt.Errorf("readiness checker is required")
+	}
+	if options.Metrics == nil {
+		return nil, fmt.Errorf("metrics handler is required")
+	}
+	if err := options.CORS.Validate(); err != nil {
+		return nil, err
+	}
+	if options.RateLimit != nil {
+		if err := options.RateLimit.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	router := chi.NewRouter()
 	router.Use(RequestID)
 	router.Use(AccessLog(options.Logger))
@@ -39,17 +55,16 @@ func NewRouter(options RouterOptions) http.Handler {
 		response.Write(writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	router.Get("/health/ready", func(writer http.ResponseWriter, request *http.Request) {
-		if options.Readiness != nil {
-			if err := options.Readiness.Ready(request.Context()); err != nil {
-				response.WriteError(writer, apperror.ServiceUnavailable("service not ready", err))
-				return
-			}
+		if err := options.Readiness.Ready(request.Context()); err != nil {
+			response.WriteError(writer, apperror.ServiceUnavailable("service not ready", err))
+			return
 		}
 		response.Write(writer, http.StatusOK, map[string]string{"status": "ok"})
 	})
-	if options.Metrics != nil {
-		router.Handle("/metrics", options.Metrics)
+	router.Handle("/metrics", options.Metrics)
+	if options.Register != nil {
+		options.Register(router)
 	}
 
-	return router
+	return router, nil
 }

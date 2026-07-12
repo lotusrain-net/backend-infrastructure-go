@@ -132,7 +132,7 @@ func TestAccessLogIncludesRequestIDRouteStatusAndDuration(t *testing.T) {
 	}
 }
 
-func TestAccessLogPreservesOptionalResponseWriterCapabilities(t *testing.T) {
+func TestResponseControllerFlushTraversesAccessLogWriter(t *testing.T) {
 	downstreamSawFlusher := false
 	handler := httpserver.AccessLog(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		controller := http.NewResponseController(writer)
@@ -146,6 +146,43 @@ func TestAccessLogPreservesOptionalResponseWriterCapabilities(t *testing.T) {
 
 	if !downstreamSawFlusher {
 		t.Fatal("downstream handler was not invoked")
+	}
+}
+
+func TestAccessLogDelegatesHTTP2Push(t *testing.T) {
+	underlying := &pushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	handler := httpserver.AccessLog(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		pusher, ok := writer.(http.Pusher)
+		if !ok {
+			t.Fatal("wrapped writer does not implement http.Pusher")
+		}
+		if err := pusher.Push("/asset.js", nil); err != nil {
+			t.Fatal(err)
+		}
+	}))
+
+	handler.ServeHTTP(underlying, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if underlying.pushed != "/asset.js" {
+		t.Fatalf("pushed = %q", underlying.pushed)
+	}
+}
+
+func TestAccessLogKeepsFirstCommittedStatus(t *testing.T) {
+	var output bytes.Buffer
+	handler := httpserver.AccessLog(slog.New(slog.NewJSONHandler(&output, nil)))(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusCreated)
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["status"] != float64(http.StatusCreated) {
+		t.Fatalf("logged status = %#v", record["status"])
 	}
 }
 
@@ -252,6 +289,29 @@ func TestRateLimitFailsClosedForCriticalRoute(t *testing.T) {
 	}
 }
 
+func TestRateLimitWithNilLimiterFailsClosedForCriticalRoute(t *testing.T) {
+	handler := httpserver.RateLimit(httpserver.RateLimitConfig{
+		Limit: 10, Window: time.Minute,
+		Critical: func(*http.Request) bool { return true },
+	})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("critical request must not reach downstream handler")
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/login", nil))
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+}
+
+func TestCORSValidateRejectsWildcardCredentials(t *testing.T) {
+	err := (httpserver.CORSConfig{AllowedOrigins: []string{"*"}, AllowCredentials: true}).Validate()
+	if err == nil {
+		t.Fatal("wildcard origin with credentials must be rejected")
+	}
+}
+
 type failingLimiter struct{}
 
 func (failingLimiter) Allow(context.Context, string, int, time.Duration) (httpserver.RateLimitDecision, error) {
@@ -260,6 +320,16 @@ func (failingLimiter) Allow(context.Context, string, int, time.Duration) (httpse
 
 type fixedLimiter struct {
 	decision httpserver.RateLimitDecision
+}
+
+type pushRecorder struct {
+	*httptest.ResponseRecorder
+	pushed string
+}
+
+func (recorder *pushRecorder) Push(target string, _ *http.PushOptions) error {
+	recorder.pushed = target
+	return nil
 }
 
 func (limiter fixedLimiter) Allow(context.Context, string, int, time.Duration) (httpserver.RateLimitDecision, error) {

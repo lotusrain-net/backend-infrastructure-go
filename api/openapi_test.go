@@ -1,50 +1,53 @@
 package api_test
 
 import (
-	"os"
-	"strings"
+	"context"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
-func TestOpenAPIDeclaresBaseRoutesAndSharedSchemas(t *testing.T) {
-	content, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatal(err)
+func TestOpenAPILoadsAndValidates(t *testing.T) {
+	document := loadOpenAPI(t)
+	if err := document.Validate(context.Background()); err != nil {
+		t.Fatalf("validate OpenAPI: %v", err)
 	}
-	spec := string(content)
-	for _, required := range []string{
-		"openapi: 3.1.0",
-		"/health/live:",
-		"/health/ready:",
-		"/metrics:",
-		"SuccessEnvelope:",
-		"ErrorEnvelope:",
-		"PaginationMeta:",
-		"X-Request-ID:",
-	} {
-		if !strings.Contains(spec, required) {
-			t.Errorf("OpenAPI spec is missing %q", required)
+}
+
+func TestBaseEndpointsExplicitlyDisableSecurity(t *testing.T) {
+	document := loadOpenAPI(t)
+	for _, path := range []string{"/health/live", "/health/ready", "/metrics"} {
+		item := document.Paths.Find(path)
+		if item == nil || item.Get == nil {
+			t.Fatalf("GET %s is missing", path)
+		}
+		if item.Get.Security == nil || len(*item.Get.Security) != 0 {
+			t.Errorf("GET %s must declare security: []", path)
 		}
 	}
 }
 
-func TestOpenAPIErrorEnvelopePreservesCodeMsgDataContract(t *testing.T) {
-	content, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	spec := string(content)
-	start := strings.Index(spec, "    ErrorEnvelope:")
-	if start < 0 {
-		t.Fatal("ErrorEnvelope schema is missing")
-	}
-	section := spec[start:]
-	if next := strings.Index(section[1:], "\n    PaginationMeta:"); next >= 0 {
-		section = section[:next+1]
-	}
-	for _, property := range []string{"code:", "msg:", "data:"} {
-		if !strings.Contains(section, property) {
-			t.Errorf("ErrorEnvelope is missing %s", property)
+func TestOpenAPIProvidesSharedEnvelopeAndPaginationSchemas(t *testing.T) {
+	document := loadOpenAPI(t)
+	for _, schema := range []string{"SuccessEnvelope", "ErrorEnvelope", "PaginationMeta", "PaginatedResponse"} {
+		if document.Components.Schemas[schema] == nil {
+			t.Errorf("schema %s is missing", schema)
 		}
 	}
+	errorSchema := document.Components.Schemas["ErrorEnvelope"].Value
+	if errorSchema == nil || errorSchema.Properties["code"] == nil || errorSchema.Properties["code"].Value.Type == nil || !errorSchema.Properties["code"].Value.Type.Is("integer") {
+		t.Fatal("ErrorEnvelope.code must be an integer")
+	}
+	if document.Components.Responses["PaginatedResponse"] == nil {
+		t.Fatal("reusable PaginatedResponse response component is missing")
+	}
+}
+
+func loadOpenAPI(t *testing.T) *openapi3.T {
+	t.Helper()
+	document, err := openapi3.NewLoader().LoadFromFile("openapi.yaml")
+	if err != nil {
+		t.Fatalf("load OpenAPI: %v", err)
+	}
+	return document
 }

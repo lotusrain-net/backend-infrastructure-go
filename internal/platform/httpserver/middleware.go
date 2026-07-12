@@ -75,6 +75,17 @@ type CORSConfig struct {
 	MaxAge           time.Duration
 }
 
+func (config CORSConfig) Validate() error {
+	if config.AllowCredentials {
+		for _, origin := range config.AllowedOrigins {
+			if origin == "*" {
+				return fmt.Errorf("CORS wildcard origin cannot be combined with credentials")
+			}
+		}
+	}
+	return nil
+}
+
 func CORS(config CORSConfig) func(http.Handler) http.Handler {
 	origins := stringSet(config.AllowedOrigins)
 	methods := strings.Join(config.AllowedMethods, ", ")
@@ -144,20 +155,36 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func (writer *statusWriter) Unwrap() http.ResponseWriter {
 	return writer.ResponseWriter
 }
 
+func (writer *statusWriter) Push(target string, options *http.PushOptions) error {
+	pusher, ok := writer.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, options)
+}
+
 func (writer *statusWriter) WriteHeader(status int) {
+	if writer.wroteHeader {
+		return
+	}
+	writer.wroteHeader = true
 	writer.status = status
 	writer.ResponseWriter.WriteHeader(status)
 }
 
 func (writer *statusWriter) Write(value []byte) (int, error) {
+	if !writer.wroteHeader {
+		writer.WriteHeader(http.StatusOK)
+	}
 	written, err := writer.ResponseWriter.Write(value)
 	writer.bytes += written
 	return written, err
@@ -190,6 +217,19 @@ type RateLimitConfig struct {
 	Critical func(*http.Request) bool
 }
 
+func (config RateLimitConfig) Validate() error {
+	if config.Limiter == nil {
+		return fmt.Errorf("rate limiter is required")
+	}
+	if config.Limit <= 0 {
+		return fmt.Errorf("rate limit must be positive")
+	}
+	if config.Window <= 0 {
+		return fmt.Errorf("rate limit window must be positive")
+	}
+	return nil
+}
+
 func RateLimit(config RateLimitConfig) func(http.Handler) http.Handler {
 	key := config.Key
 	if key == nil {
@@ -197,7 +237,15 @@ func RateLimit(config RateLimitConfig) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if config.Limiter == nil || config.Limit <= 0 || config.Window <= 0 {
+			if config.Limiter == nil {
+				if config.Critical != nil && config.Critical(request) {
+					response.WriteError(writer, apperror.ServiceUnavailable("rate limiter unavailable", nil))
+					return
+				}
+				next.ServeHTTP(writer, request)
+				return
+			}
+			if config.Limit <= 0 || config.Window <= 0 {
 				next.ServeHTTP(writer, request)
 				return
 			}
