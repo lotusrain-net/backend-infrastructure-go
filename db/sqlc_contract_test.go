@@ -45,7 +45,8 @@ func TestSQLCDriftGateUsesPinnedGeneratorAndTemporaryOutput(t *testing.T) {
 	for _, fragment := range []string{
 		"github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0",
 		"[System.IO.Path]::GetTempPath()",
-		"Get-FileHash",
+		"[System.Security.Cryptography.SHA256]::Create()",
+		"Replace(\"`r`n\", \"`n\")",
 		"SQLC generated output is stale",
 	} {
 		if !strings.Contains(text, fragment) {
