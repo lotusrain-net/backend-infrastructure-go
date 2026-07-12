@@ -59,6 +59,9 @@ foreach ($service in @("api", "worker", "scheduler")) {
     Assert-True ($config.services.$service.read_only -eq $true) "$service root filesystem must be read-only"
     Assert-True ($config.services.$service.security_opt -contains "no-new-privileges:true") "$service must disable privilege escalation"
 }
+foreach ($name in @("ADMIN_EMAIL", "ADMIN_USERNAME", "ADMIN_PASSWORD")) {
+    Assert-True (-not [string]::IsNullOrWhiteSpace($config.services.api.environment.$name)) "API environment missing: $name"
+}
 
 $deliveryFiles = @(
     "Dockerfile",
