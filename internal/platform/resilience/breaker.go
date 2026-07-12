@@ -80,7 +80,7 @@ func (breaker *CircuitBreaker) State() BreakerState {
 	return breaker.state
 }
 
-func (breaker *CircuitBreaker) Execute(ctx context.Context, operation func(context.Context) error) error {
+func (breaker *CircuitBreaker) Execute(ctx context.Context, operation func(context.Context) error) (operationErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -89,9 +89,14 @@ func (breaker *CircuitBreaker) Execute(ctx context.Context, operation func(conte
 		return err
 	}
 
-	operationErr := operation(ctx)
-	breaker.record(ctx, generation, operationErr)
-	return operationErr
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			breaker.record(ctx, generation, errors.New("operation panicked"))
+			panic(recovered)
+		}
+		breaker.record(ctx, generation, operationErr)
+	}()
+	return operation(ctx)
 }
 
 func (breaker *CircuitBreaker) acquire() (uint64, error) {

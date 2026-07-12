@@ -169,3 +169,33 @@ func TestCircuitBreakerReleasesHalfOpenProbeAfterCallerCancellation(t *testing.T
 		t.Fatalf("State() = %s, want closed", breaker.State())
 	}
 }
+
+func TestCircuitBreakerReopensAfterHalfOpenProbePanics(t *testing.T) {
+	clock := &manualClock{now: time.Unix(100, 0)}
+	breaker, _ := NewCircuitBreaker(1, time.Minute, WithClock(clock.Now))
+	_ = breaker.Execute(context.Background(), func(context.Context) error { return errors.New("failed") })
+	clock.now = clock.now.Add(time.Minute)
+	wantPanic := errors.New("probe panicked")
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != wantPanic {
+				t.Fatalf("recover() = %v, want %v", recovered, wantPanic)
+			}
+		}()
+		_ = breaker.Execute(context.Background(), func(context.Context) error {
+			panic(wantPanic)
+		})
+	}()
+
+	if breaker.State() != StateOpen {
+		t.Fatalf("State() after probe panic = %s, want open", breaker.State())
+	}
+	clock.now = clock.now.Add(time.Minute)
+	if err := breaker.Execute(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("probe after panic cooldown error = %v", err)
+	}
+	if breaker.State() != StateClosed {
+		t.Fatalf("State() after successful probe = %s, want closed", breaker.State())
+	}
+}
