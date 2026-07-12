@@ -49,10 +49,10 @@ func (queries *executionQueriesStub) UpdateTaskExecutionStatus(_ context.Context
 }
 
 type scheduleQueriesStub struct {
-	result []dbgen.TaskSchedule
+	result []dbgen.ListEnabledTaskSchedulesRow
 }
 
-func (queries *scheduleQueriesStub) ListEnabledTaskSchedules(context.Context) ([]dbgen.TaskSchedule, error) {
+func (queries *scheduleQueriesStub) ListEnabledTaskSchedules(context.Context) ([]dbgen.ListEnabledTaskSchedulesRow, error) {
 	return queries.result, nil
 }
 
@@ -114,16 +114,16 @@ func TestPostgresExecutionStoreSynchronizesStatusFields(t *testing.T) {
 func TestPostgresScheduleStoreMapsEnabledSchedules(t *testing.T) {
 	t.Parallel()
 
-	queries := &scheduleQueriesStub{result: []dbgen.TaskSchedule{{
+	queries := &scheduleQueriesStub{result: []dbgen.ListEnabledTaskSchedulesRow{{
 		ID: testUUID, DefinitionID: testUUID, CronExpression: "*/5 * * * *", Timezone: "UTC",
-		Payload: []byte(`{"scope":"all"}`), IsEnabled: true,
+		Payload: []byte(`{"scope":"all"}`), IsEnabled: true, TaskType: SystemTestTaskType, MaxRetries: 4, TimeoutSeconds: 120,
 	}}}
 	store := NewPostgresScheduleStore(queries)
 	schedules, err := store.ListEnabledSchedules(context.Background())
 	if err != nil {
 		t.Fatalf("ListEnabledSchedules() error = %v", err)
 	}
-	if len(schedules) != 1 || schedules[0].ID != testUUIDString || !schedules[0].Enabled {
+	if len(schedules) != 1 || schedules[0].ID != testUUIDString || !schedules[0].Enabled || schedules[0].TaskType != SystemTestTaskType || schedules[0].MaxRetries != 4 || schedules[0].Timeout != 2*time.Minute {
 		t.Fatalf("schedules = %+v", schedules)
 	}
 }

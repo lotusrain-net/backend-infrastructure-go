@@ -24,7 +24,7 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	GrantRolePermission(ctx context.Context, arg GrantRolePermissionParams) error
-	ListEnabledTaskSchedules(ctx context.Context) ([]TaskSchedule, error)
+	ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTaskSchedulesRow, error)
 	ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)

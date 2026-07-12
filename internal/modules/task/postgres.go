@@ -106,7 +106,7 @@ func (store *PostgresExecutionStore) UpdateExecution(ctx context.Context, update
 }
 
 type ScheduleQueries interface {
-	ListEnabledTaskSchedules(context.Context) ([]dbgen.TaskSchedule, error)
+	ListEnabledTaskSchedules(context.Context) ([]dbgen.ListEnabledTaskSchedulesRow, error)
 }
 
 type PostgresScheduleStore struct {
@@ -131,6 +131,9 @@ func (store *PostgresScheduleStore) ListEnabledSchedules(ctx context.Context) ([
 			Timezone:       row.Timezone,
 			Payload:        row.Payload,
 			Enabled:        row.IsEnabled,
+			TaskType:       row.TaskType,
+			MaxRetries:     int(row.MaxRetries),
+			Timeout:        time.Duration(row.TimeoutSeconds) * time.Second,
 		})
 	}
 	return schedules, nil

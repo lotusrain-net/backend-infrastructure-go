@@ -77,6 +77,9 @@ type Schedule struct {
 	Timezone       string
 	Payload        json.RawMessage
 	Enabled        bool
+	TaskType       string
+	MaxRetries     int
+	Timeout        time.Duration
 }
 
 type Message struct {

@@ -7,13 +7,34 @@ import (
 	"os/signal"
 	"syscall"
 
+	"backend-infrastructure-go/internal/app"
 	"backend-infrastructure-go/internal/bootstrap"
+	"backend-infrastructure-go/internal/config"
+	platformlogging "backend-infrastructure-go/internal/platform/logging"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := bootstrap.Execute(ctx, os.Stdout, "migrate"); err != nil {
+	cfg, err := config.Load()
+	if err == nil {
+		direction := "up"
+		if len(os.Args) > 1 {
+			direction = os.Args[1]
+		}
+		level, levelErr := platformlogging.ParseLevel(cfg.LogLevel)
+		if levelErr != nil {
+			err = levelErr
+		} else {
+			runtime, buildErr := app.BuildMigrate(cfg, direction)
+			if buildErr != nil {
+				err = buildErr
+			} else {
+				err = bootstrap.Run(ctx, platformlogging.New(os.Stdout, level, cfg.ServiceName), cfg.ShutdownTimeout, runtime)
+			}
+		}
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

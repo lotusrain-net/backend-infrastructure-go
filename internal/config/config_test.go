@@ -148,6 +148,28 @@ func setValidEnvironment(t *testing.T) {
 	t.Setenv("BREAKER_TIMEOUT", "30s")
 }
 
+func TestLoadIncludesRuntimeWiringDefaults(t *testing.T) {
+	setValidEnvironment(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JWTIssuer == "" || cfg.AccessTokenTTL <= 0 || cfg.RefreshTokenTTL <= 0 {
+		t.Fatalf("token config=%+v", cfg)
+	}
+	if cfg.DatabaseMaxConns <= 0 || cfg.AsynqConcurrency <= 0 || cfg.SchedulerRefreshInterval <= 0 {
+		t.Fatalf("runtime config=%+v", cfg)
+	}
+}
+
+func TestLoadRejectsMalformedRuntimeWiringSettings(t *testing.T) {
+	setValidEnvironment(t)
+	t.Setenv("ASYNQ_CONCURRENCY", "many")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected malformed runtime configuration error")
+	}
+}
+
 func unsetEnvironment(t *testing.T, name string) {
 	t.Helper()
 	value, existed := os.LookupEnv(name)

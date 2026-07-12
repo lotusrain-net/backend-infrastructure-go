@@ -123,18 +123,38 @@ func (q *Queries) GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExe
 }
 
 const listEnabledTaskSchedules = `-- name: ListEnabledTaskSchedules :many
-SELECT id, definition_id, cron_expression, timezone, payload, is_enabled, last_enqueued_at, created_at, updated_at FROM task_schedules WHERE is_enabled = TRUE ORDER BY created_at, id
+SELECT task_schedules.id, task_schedules.definition_id, task_schedules.cron_expression, task_schedules.timezone, task_schedules.payload, task_schedules.is_enabled, task_schedules.last_enqueued_at, task_schedules.created_at, task_schedules.updated_at, task_definitions.task_type, task_definitions.max_retries,
+       task_definitions.timeout_seconds
+FROM task_schedules
+JOIN task_definitions ON task_definitions.id = task_schedules.definition_id
+WHERE task_schedules.is_enabled = TRUE AND task_definitions.is_active = TRUE
+ORDER BY task_schedules.created_at, task_schedules.id
 `
 
-func (q *Queries) ListEnabledTaskSchedules(ctx context.Context) ([]TaskSchedule, error) {
+type ListEnabledTaskSchedulesRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	DefinitionID   pgtype.UUID        `json:"definition_id"`
+	CronExpression string             `json:"cron_expression"`
+	Timezone       string             `json:"timezone"`
+	Payload        []byte             `json:"payload"`
+	IsEnabled      bool               `json:"is_enabled"`
+	LastEnqueuedAt pgtype.Timestamptz `json:"last_enqueued_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	TaskType       string             `json:"task_type"`
+	MaxRetries     int32              `json:"max_retries"`
+	TimeoutSeconds int32              `json:"timeout_seconds"`
+}
+
+func (q *Queries) ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTaskSchedulesRow, error) {
 	rows, err := q.db.Query(ctx, listEnabledTaskSchedules)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskSchedule{}
+	items := []ListEnabledTaskSchedulesRow{}
 	for rows.Next() {
-		var i TaskSchedule
+		var i ListEnabledTaskSchedulesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DefinitionID,
@@ -145,6 +165,9 @@ func (q *Queries) ListEnabledTaskSchedules(ctx context.Context) ([]TaskSchedule,
 			&i.LastEnqueuedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TaskType,
+			&i.MaxRetries,
+			&i.TimeoutSeconds,
 		); err != nil {
 			return nil, err
 		}

@@ -19,4 +19,9 @@ SET status = $2, started_at = $3, finished_at = $4, error_summary = $5,
 WHERE id = $1;
 
 -- name: ListEnabledTaskSchedules :many
-SELECT * FROM task_schedules WHERE is_enabled = TRUE ORDER BY created_at, id;
+SELECT task_schedules.*, task_definitions.task_type, task_definitions.max_retries,
+       task_definitions.timeout_seconds
+FROM task_schedules
+JOIN task_definitions ON task_definitions.id = task_schedules.definition_id
+WHERE task_schedules.is_enabled = TRUE AND task_definitions.is_active = TRUE
+ORDER BY task_schedules.created_at, task_schedules.id;
