@@ -106,11 +106,17 @@ func scheduleFingerprint(schedule taskmodule.Schedule) (string, error) {
 		CronExpression string          `json:"cron_expression"`
 		Timezone       string          `json:"timezone"`
 		Payload        json.RawMessage `json:"payload"`
+		TaskType       string          `json:"task_type"`
+		MaxRetries     int             `json:"max_retries"`
+		Timeout        int64           `json:"timeout_nanoseconds"`
 	}{
 		DefinitionID:   schedule.DefinitionID,
 		CronExpression: schedule.CronExpression,
 		Timezone:       schedule.Timezone,
 		Payload:        schedule.Payload,
+		TaskType:       schedule.TaskType,
+		MaxRetries:     schedule.MaxRetries,
+		Timeout:        int64(schedule.Timeout),
 	})
 	if err != nil {
 		return "", fmt.Errorf("fingerprint schedule %s: %w", schedule.ID, err)

@@ -25,6 +25,11 @@ func DefaultArgon2Params() Argon2Params {
 
 type PasswordHasher struct{ params Argon2Params }
 
+type PasswordService interface {
+	Hash(string) (string, error)
+	Verify(string, string) (bool, error)
+}
+
 func NewPasswordHasher(params Argon2Params) PasswordHasher { return PasswordHasher{params: params} }
 
 func (h PasswordHasher) Hash(password string) (string, error) {

@@ -25,6 +25,17 @@ type RequestMetadata struct {
 	UserAgent string
 }
 
+type requestMetadataKey struct{}
+
+func WithRequestMetadata(ctx context.Context, metadata RequestMetadata) context.Context {
+	return context.WithValue(ctx, requestMetadataKey{}, metadata)
+}
+
+func RequestMetadataFromContext(ctx context.Context) RequestMetadata {
+	metadata, _ := ctx.Value(requestMetadataKey{}).(RequestMetadata)
+	return metadata
+}
+
 type NewEvent struct {
 	RequestID    string
 	ActorID      *string

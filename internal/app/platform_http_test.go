@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -25,15 +27,53 @@ func (stub *auditListStub) List(_ context.Context, query audit.Query) (paginatio
 type taskAPIStub struct {
 	submitted  int
 	submission taskmodule.Submission
+	execution  taskmodule.Execution
+	getErr     error
+	submitErr  error
+}
+
+type taskObserverStub struct{ taskType, status string }
+
+func (stub *taskObserverStub) ObserveTask(taskType, status string, _ time.Duration) {
+	stub.taskType, stub.status = taskType, status
 }
 
 func (s *taskAPIStub) Submit(_ context.Context, submission taskmodule.Submission) (taskmodule.Execution, error) {
 	s.submitted++
 	s.submission = submission
-	return taskmodule.Execution{ID: "execution-1", Status: taskmodule.StatusQueued}, nil
+	if s.submitErr != nil {
+		return taskmodule.Execution{}, s.submitErr
+	}
+	if s.execution.ID != "" {
+		return s.execution, nil
+	}
+	return taskmodule.Execution{ID: "execution-1", TaskType: submission.TaskType, Payload: submission.Payload, Status: taskmodule.StatusQueued}, nil
+}
+
+func TestSubmitTaskMapsMissingDefinitionToNotFound(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{submitErr: taskmodule.ErrDefinitionNotFound}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"definition_id":"00112233-4455-6677-8899-aabbccddeeff","task_type":"system.test","payload":{}}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
 }
 func (s *taskAPIStub) GetExecution(context.Context, string) (taskmodule.Execution, error) {
-	return taskmodule.Execution{ID: "execution-1", Status: taskmodule.StatusQueued}, nil
+	if s.getErr != nil {
+		return taskmodule.Execution{}, s.getErr
+	}
+	if s.execution.ID != "" {
+		return s.execution, nil
+	}
+	return taskmodule.Execution{ID: "execution-1", TaskType: taskmodule.SystemTestTaskType, Payload: json.RawMessage(`{}`), Status: taskmodule.StatusQueued}, nil
 }
 
 func TestPlatformRoutesUseAuthenticationRBACAndSharedEndpoints(t *testing.T) {
@@ -65,5 +105,128 @@ func TestPlatformRoutesUseAuthenticationRBACAndSharedEndpoints(t *testing.T) {
 	filter := audits.query.Filter
 	if filter.ResourceID != "execution-1" || filter.RequestID != "req-1" || filter.ActorID != "user-1" || filter.Result != audit.ResultSuccess {
 		t.Fatalf("filter=%+v", filter)
+	}
+}
+
+func TestSubmitTaskAppliesDocumentedDefaultsAndQueueOptions(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"task_type":"system.test","payload":{},"unique_for_seconds":60,"process_after_seconds":15}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if tasks.submission.TaskType != taskmodule.SystemTestTaskType || tasks.submission.MaxRetries != 3 || tasks.submission.Timeout != 5*time.Minute {
+		t.Fatalf("submission defaults = %+v", tasks.submission)
+	}
+	if tasks.submission.UniqueFor != time.Minute || tasks.submission.ProcessAfter != 15*time.Second {
+		t.Fatalf("queue options = %+v", tasks.submission)
+	}
+	if strings.Contains(rec.Body.String(), "TaskType") || !strings.Contains(rec.Body.String(), `"task_type":"system.test"`) {
+		t.Fatalf("response does not use snake_case: %s", rec.Body.String())
+	}
+}
+
+func TestSubmitTaskAuditsAuthenticatedActorAndObservesQueuedExecution(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{}
+	recorder := &preserveStub{}
+	observer := &taskObserverStub{}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks, Recorder: recorder, TaskObserver: observer})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"task_type":"system.test","payload":{}}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if recorder.event.ActorID == nil || *recorder.event.ActorID != "user-1" {
+		t.Fatalf("audit actor = %v", recorder.event.ActorID)
+	}
+	if observer.taskType != taskmodule.SystemTestTaskType || observer.status != string(taskmodule.StatusQueued) {
+		t.Fatalf("task metric = %q %q", observer.taskType, observer.status)
+	}
+}
+
+func TestSubmitTaskPreservesExplicitZeroRetries(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"task_type":"system.test","payload":{},"max_retries":0,"timeout_seconds":10}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if tasks.submission.MaxRetries != 0 || tasks.submission.Timeout != 10*time.Second {
+		t.Fatalf("explicit options = %+v", tasks.submission)
+	}
+}
+
+func TestSubmitTaskRejectsRequestsOutsideDocumentedContract(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tests := []string{
+		`{"payload":{}}`,
+		`{"task_type":"report.generate","payload":{}}`,
+		`{"task_type":"system.test"}`,
+		`{"task_type":"system.test","payload":[]}`,
+		`{"task_type":"system.test","payload":{},"definition_id":"not-a-uuid"}`,
+		`{"task_type":"system.test","payload":{},"definition_id":""}`,
+		`{"task_type":"system.test","payload":{},"idempotency_key":""}`,
+		`{"task_type":"system.test","payload":{},"max_retries":-1}`,
+		`{"task_type":"system.test","payload":{},"max_retries":null}`,
+		`{"task_type":"system.test","payload":{},"timeout_seconds":0}`,
+		`{"task_type":"system.test","payload":{},"unique_for_seconds":-1}`,
+		`{"task_type":"system.test","payload":{},"process_after_seconds":-1}`,
+		`{"task_type":"system.test","payload":{}} {}`,
+	}
+	for _, body := range tests {
+		t.Run(body, func(t *testing.T) {
+			tasks := &taskAPIStub{}
+			router := chi.NewRouter()
+			RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if tasks.submitted != 0 {
+				t.Fatalf("Submit() called %d times", tasks.submitted)
+			}
+		})
+	}
+}
+
+func TestGetExecutionMapsMissingExecutionToNotFound(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{getErr: fmt.Errorf("lookup: %w", taskmodule.ErrExecutionNotFound)}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/task-executions/00000000-0000-0000-0000-000000000001", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

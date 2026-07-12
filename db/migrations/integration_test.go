@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
+	"backend-infrastructure-go/internal/platform/database/iamstore"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -196,6 +198,8 @@ func exerciseConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	queries := dbgen.New(conn)
+	store := iamstore.New(queries)
+	authorization := iam.NewService(nil, store, iam.PasswordHasher{}, nil, nil)
 	created, err := queries.CreateUser(ctx, dbgen.CreateUserParams{
 		Email:        "dbgen@example.com",
 		Username:     "dbgen-user",
@@ -224,8 +228,12 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	if err := queries.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: created.ID, PasswordHash: "hash-2"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: false}); err != nil {
+	if _, err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: false}); err != nil {
 		t.Fatal(err)
+	}
+	missingID := "00000000-0000-4000-8000-000000000099"
+	if err := store.SetActive(ctx, missingID, false); !errors.Is(err, iam.ErrNotFound) {
+		t.Fatalf("SetActive(missing) error = %v", err)
 	}
 	updated, err := queries.GetUserByID(ctx, created.ID)
 	if err != nil || updated.Email != "dbgen-updated@example.com" || updated.Username != "dbgen-updated" || updated.DisplayName != "Updated" || updated.PasswordHash != "hash-2" || updated.IsActive {
@@ -248,6 +256,12 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	if err := queries.GrantRolePermission(ctx, grant); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.AssignRole(ctx, missingID, missingID); !errors.Is(err, iam.ErrNotFound) {
+		t.Fatalf("AssignRole(missing) error = %v", err)
+	}
+	if err := store.GrantPermission(ctx, missingID, missingID); !errors.Is(err, iam.ErrNotFound) {
+		t.Fatalf("GrantPermission(missing) error = %v", err)
+	}
 	if err := queries.GrantRolePermission(ctx, grant); err != nil {
 		t.Fatalf("duplicate GrantRolePermission() error = %v", err)
 	}
@@ -258,9 +272,28 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	if err := queries.AssignUserRole(ctx, assignment); err != nil {
 		t.Fatalf("duplicate AssignUserRole() error = %v", err)
 	}
+	if _, err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: true}); err != nil {
+		t.Fatal(err)
+	}
 	userPermissions, err := queries.ListUserPermissions(ctx, created.ID)
 	if err != nil || len(userPermissions) != 1 || userPermissions[0] != "tasks:write" {
 		t.Fatalf("ListUserPermissions() = %v, %v", userPermissions, err)
+	}
+	if err := authorization.Authorize(ctx, created.ID.String(), "tasks:write"); err != nil {
+		t.Fatalf("Authorize() active user error = %v", err)
+	}
+	if _, err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: false}); err != nil {
+		t.Fatal(err)
+	}
+	inactivePermissions, err := queries.ListUserPermissions(ctx, created.ID)
+	if err != nil || len(inactivePermissions) != 0 {
+		t.Fatalf("ListUserPermissions() for inactive user = %v, %v; want no permissions", inactivePermissions, err)
+	}
+	if err := authorization.Authorize(ctx, created.ID.String(), "tasks:write"); !errors.Is(err, iam.ErrPermissionDenied) {
+		t.Fatalf("Authorize() inactive user error = %v, want permission denied", err)
+	}
+	if _, err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: true}); err != nil {
+		t.Fatal(err)
 	}
 	if roles, err := queries.ListRoles(ctx); err != nil || len(roles) < 3 {
 		t.Fatalf("ListRoles() count = %d, %v", len(roles), err)
@@ -273,5 +306,12 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	}
 	if _, err := queries.GetUserByID(ctx, created.ID); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("GetUserByID() after delete error = %v", err)
+	}
+	missingPermissions, err := queries.ListUserPermissions(ctx, created.ID)
+	if err != nil || len(missingPermissions) != 0 {
+		t.Fatalf("ListUserPermissions() for missing user = %v, %v; want no permissions", missingPermissions, err)
+	}
+	if err := authorization.Authorize(ctx, created.ID.String(), "tasks:write"); !errors.Is(err, iam.ErrPermissionDenied) {
+		t.Fatalf("Authorize() missing user error = %v, want permission denied", err)
 	}
 }

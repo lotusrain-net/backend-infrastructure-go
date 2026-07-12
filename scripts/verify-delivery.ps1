@@ -48,9 +48,19 @@ Assert-True ($config.services.postgres.image -match '^postgres:15(?:-|$)') "Comp
 Assert-True ($config.services.redis.image -match '^redis:7(?:-|$)') "Compose must use Redis 7"
 Assert-True (($config.services.redis.command -join " ") -match '(?i)--appendonly\s+yes') "Redis must enable AOF"
 Assert-True ($config.networks.backend.internal -eq $true) "Backend service network must be private/internal"
+Assert-True ($null -ne $config.networks.edge) "Compose must define an edge network for the published API port"
+Assert-True ($config.networks.edge.internal -ne $true) "API edge network must permit host port publishing"
+Assert-True ($config.services.api.networks.PSObject.Properties.Name -contains "backend") "API must remain connected to the private backend network"
+Assert-True ($config.services.api.networks.PSObject.Properties.Name -contains "edge") "API must connect to the edge network for host access"
+foreach ($service in @("postgres", "redis", "migrate", "worker", "scheduler")) {
+    Assert-True ($config.services.$service.networks.PSObject.Properties.Name -notcontains "edge") "$service must not connect to the edge network"
+}
 Assert-True ($config.services.migrate.depends_on.postgres.condition -eq "service_healthy") "Migrate must wait for PostgreSQL health"
 Assert-True ($config.services.migrate.entrypoint[0] -eq "/app/migrate") "Migrate service must execute the repository migration binary"
 Assert-True ($config.services.migrate.command[0] -eq "up") "Migrate service must run the up command"
+Assert-True ($config.services.migrate.environment.MIGRATIONS_SOURCE -eq "file:///app/migrations") "Migrate service must read migrations from the container image path"
+Assert-True ($config.services.worker.environment.WORKER_METRICS_ADDR -eq ":9090") "Worker must listen on the internal metrics port"
+Assert-True ($config.services.worker.expose -contains "9090") "Worker metrics port must be exposed to the Compose network"
 foreach ($service in @("api", "worker", "scheduler")) {
     Assert-True ($config.services.$service.depends_on.migrate.condition -eq "service_completed_successfully") "$service must wait for successful migrations"
     Assert-True ($config.services.$service.depends_on.postgres.condition -eq "service_healthy") "$service must wait for PostgreSQL health"
@@ -59,9 +69,39 @@ foreach ($service in @("api", "worker", "scheduler")) {
     Assert-True ($config.services.$service.read_only -eq $true) "$service root filesystem must be read-only"
     Assert-True ($config.services.$service.security_opt -contains "no-new-privileges:true") "$service must disable privilege escalation"
 }
+Assert-True ($null -ne $config.services.api.build) "API service must own the single application image build"
+foreach ($service in @("migrate", "worker", "scheduler")) {
+    Assert-True ($null -eq $config.services.$service.build) "$service must reuse the application image without declaring another build"
+    Assert-True ($config.services.$service.image -eq $config.services.api.image) "$service must reuse the API application image"
+}
 foreach ($name in @("ADMIN_EMAIL", "ADMIN_USERNAME", "ADMIN_PASSWORD")) {
     Assert-True (-not [string]::IsNullOrWhiteSpace($config.services.api.environment.$name)) "API environment missing: $name"
 }
+Assert-True (-not [string]::IsNullOrWhiteSpace($config.services.api.environment.JWT_SECRET)) "API environment missing: JWT_SECRET"
+foreach ($service in @("migrate", "worker", "scheduler")) {
+    foreach ($name in @("JWT_SECRET", "ADMIN_EMAIL", "ADMIN_USERNAME", "ADMIN_PASSWORD")) {
+        Assert-True ($config.services.$service.environment.PSObject.Properties.Name -notcontains $name) "$service must not receive API secret $name"
+    }
+}
+
+$smoke = Read-Required "scripts/docker-smoke.ps1"
+Assert-True ($smoke -match 'Invoke-Compose\s+@\("build",\s*"api"\)') "Docker smoke test must build the application image exactly once through the API service"
+Assert-True ($smoke -match 'Invoke-Compose\s+@\("up",\s*"-d",\s*"--no-build"') "Docker smoke test must start services without triggering duplicate image builds"
+Assert-True ($smoke -notmatch 'Invoke-Compose\s+@\("up"[^\r\n]*"--build"') "Docker smoke test must not build every service during compose up"
+Assert-True ($smoke -match '@arguments\s+exec\s+-T\s+postgres\s+printenv\s+POSTGRES_USER') "Docker smoke test must read the configured PostgreSQL user without shell interpolation"
+Assert-True ($smoke -match '@arguments\s+exec\s+-T\s+postgres\s+printenv\s+POSTGRES_DB') "Docker smoke test must read the configured PostgreSQL database without shell interpolation"
+Assert-True ($smoke -notmatch 'exec[^\r\n]*postgres[^\r\n]*sh[^\r\n]*-ec') "Docker smoke PostgreSQL checks must avoid nested shell quoting"
+Assert-True ($smoke -match 'go\s+run\s+\./scripts/verification') "Docker smoke test must run the live login/RBAC/task/audit workflow"
+Assert-True ($smoke -match 'INSERT\s+INTO\s+task_schedules') "Docker smoke test must create a real Cron schedule"
+Assert-True ($smoke -match "task_executions[^\r\n]+status[^\r\n]+succeeded") "Docker smoke test must prove the Cron execution was processed by the worker"
+Assert-True ($smoke -match 'backend_task_executions_total[^\r\n]+succeeded') "Docker smoke test must scrape a succeeded task metric from the worker"
+Assert-True ($smoke -match "audit_logs[^\r\n]+scheduling\.refresh") "Docker smoke test must prove Scheduler audit records are persisted"
+Assert-True ($smoke -match 'foreach\s*\(\$dependency\s+in\s+@\("redis",\s*"postgres"\)\)') "Docker smoke test must exercise Redis and PostgreSQL outage behavior"
+Assert-True ($smoke -match 'Invoke-Compose\s+@\("stop",\s*\$dependency\)') "Docker smoke test must stop each dependency during outage verification"
+Assert-True ($smoke -match 'health/ready') "Docker smoke test must probe readiness during dependency outages"
+Assert-True ($smoke -match 'StatusServiceUnavailable|503') "Docker smoke test must require readiness to fail closed"
+Assert-True ($smoke -match 'foreach\s*\(\$service\s+in\s+@\("api",\s*"worker",\s*"scheduler"\)\)') "Docker smoke test must verify graceful shutdown for every service"
+Assert-True ($smoke -match 'State\.ExitCode') "Docker smoke test must verify every service exits successfully"
 
 $deliveryFiles = @(
     "Dockerfile",

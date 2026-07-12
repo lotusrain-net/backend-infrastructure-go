@@ -41,7 +41,7 @@ func New(config Config) *Metrics {
 	}
 	metrics := &Metrics{
 		registry:       prometheus.NewRegistry(),
-		routes:         set(config.KnownRoutes),
+		routes:         routeSet(config.KnownRoutes),
 		dependencies:   set(config.KnownDependencies),
 		taskTypes:      set(config.KnownTaskTypes),
 		httpRequests:   prometheus.NewCounterVec(prometheus.CounterOpts{Namespace: namespace, Name: "http_requests_total", Help: "HTTP requests."}, []string{"method", "route", "status_class"}),
@@ -66,7 +66,7 @@ func (metrics *Metrics) HTTPMiddleware(next http.Handler) http.Handler {
 		started := time.Now()
 		wrapped := &statusWriter{ResponseWriter: writer, status: http.StatusOK}
 		next.ServeHTTP(wrapped, request)
-		route := "/unmatched"
+		route := NormalizePath(request.URL.Path)
 		if routeContext := chi.RouteContext(request.Context()); routeContext != nil {
 			if pattern := routeContext.RoutePattern(); pattern != "" {
 				route = pattern
@@ -149,7 +149,7 @@ func NormalizePath(path string) string {
 		return "/"
 	}
 	for index, segment := range segments {
-		if numericID.MatchString(segment) || uuidID.MatchString(segment) || hexID.MatchString(segment) {
+		if (strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")) || numericID.MatchString(segment) || uuidID.MatchString(segment) || hexID.MatchString(segment) {
 			segments[index] = "{id}"
 		}
 	}
@@ -203,6 +203,14 @@ func set(values []string) map[string]struct{} {
 	result := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		result[value] = struct{}{}
+	}
+	return result
+}
+
+func routeSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		result[NormalizePath(value)] = struct{}{}
 	}
 	return result
 }

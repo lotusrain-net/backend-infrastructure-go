@@ -29,7 +29,7 @@ type Querier interface {
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)
 	ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]string, error)
-	SetUserActive(ctx context.Context, arg SetUserActiveParams) error
+	SetUserActive(ctx context.Context, arg SetUserActiveParams) (int64, error)
 	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error

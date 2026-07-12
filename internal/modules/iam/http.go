@@ -135,8 +135,7 @@ func (h handler) login(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	h.setRefreshCookie(w, pair.RefreshToken)
-	response.Write(w, http.StatusOK, pair)
+	h.writeTokenPair(w, pair)
 }
 func (h handler) refresh(w http.ResponseWriter, r *http.Request) {
 	raw, err := refreshToken(r)
@@ -149,8 +148,7 @@ func (h handler) refresh(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	h.setRefreshCookie(w, pair.RefreshToken)
-	response.Write(w, http.StatusOK, pair)
+	h.writeTokenPair(w, pair)
 }
 func (h handler) logout(w http.ResponseWriter, r *http.Request) {
 	raw, _ := refreshToken(r)
@@ -158,7 +156,8 @@ func (h handler) logout(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	h.clearRefreshCookie(w)
+	setNoStore(w)
+	h.clearAuthCookies(w)
 	response.Write(w, http.StatusOK, map[string]bool{"logged_out": true})
 }
 func (h handler) me(w http.ResponseWriter, r *http.Request) {
@@ -183,16 +182,20 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 }
 func (h handler) setUserActive(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Active bool `json:"is_active"`
+		Active *bool `json:"is_active"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if err := h.app.SetUserActive(r.Context(), chi.URLParam(r, "userID"), in.Active); err != nil {
+	if in.Active == nil {
+		response.WriteError(w, apperror.Validation(map[string]string{"is_active": "is required"}))
+		return
+	}
+	if err := h.app.SetUserActive(r.Context(), chi.URLParam(r, "userID"), *in.Active); err != nil {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"is_active": in.Active})
+	response.Write(w, http.StatusOK, map[string]bool{"is_active": *in.Active})
 }
 func (h handler) roles(w http.ResponseWriter, r *http.Request) {
 	items, err := h.app.Roles(r.Context())
@@ -228,8 +231,22 @@ func (h handler) grantPermission(w http.ResponseWriter, r *http.Request) {
 func (h handler) setRefreshCookie(w http.ResponseWriter, value string) {
 	http.SetCookie(w, &http.Cookie{Name: RefreshCookieName, Value: value, Path: "/api/v1/auth", HttpOnly: true, Secure: h.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, MaxAge: int(h.cfg.RefreshTTL.Seconds())})
 }
-func (h handler) clearRefreshCookie(w http.ResponseWriter) {
+func (h handler) setAccessCookie(w http.ResponseWriter, value string, expiresIn int64) {
+	http.SetCookie(w, &http.Cookie{Name: AccessCookieName, Value: value, Path: "/api/v1", HttpOnly: true, Secure: h.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, MaxAge: int(expiresIn)})
+}
+func (h handler) clearAuthCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: AccessCookieName, Path: "/api/v1", HttpOnly: true, Secure: h.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	http.SetCookie(w, &http.Cookie{Name: RefreshCookieName, Path: "/api/v1/auth", HttpOnly: true, Secure: h.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+}
+func (h handler) writeTokenPair(w http.ResponseWriter, pair TokenPair) {
+	setNoStore(w)
+	h.setAccessCookie(w, pair.AccessToken, pair.ExpiresIn)
+	h.setRefreshCookie(w, pair.RefreshToken)
+	response.Write(w, http.StatusOK, pair)
+}
+func setNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 }
 func refreshToken(r *http.Request) (string, error) {
 	c, err := r.Cookie(RefreshCookieName)
@@ -244,7 +261,8 @@ func refreshToken(r *http.Request) (string, error) {
 	}
 	return "", ErrInvalidRefreshToken
 }
-func subject(r *http.Request) string { v, _ := r.Context().Value(subjectKey{}).(string); return v }
+func Subject(ctx context.Context) string { v, _ := ctx.Value(subjectKey{}).(string); return v }
+func subject(r *http.Request) string     { return Subject(r.Context()) }
 func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 	if err := decodeValue(r, value); err != nil {
 		response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
@@ -271,6 +289,8 @@ func writeIAMError(w http.ResponseWriter, err error) {
 		response.WriteError(w, apperror.New(403, err.Error(), 403, err))
 	case errors.Is(err, ErrDuplicateIdentity):
 		response.WriteError(w, apperror.New(409, err.Error(), 409, err))
+	case errors.Is(err, ErrInvalidUserInput):
+		response.WriteError(w, apperror.Validation(map[string]string{"user": err.Error()}))
 	case errors.Is(err, ErrNotFound):
 		response.WriteError(w, apperror.NotFound("resource"))
 	default:

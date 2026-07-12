@@ -56,18 +56,18 @@ type Definition struct {
 }
 
 type Execution struct {
-	ID             string
-	DefinitionID   string
-	TaskType       string
-	QueueID        string
-	IdempotencyKey string
-	Payload        json.RawMessage
-	Status         Status
-	Attempt        int
-	ProcessedRows  int64
-	ErrorSummary   string
-	StartedAt      *time.Time
-	FinishedAt     *time.Time
+	ID             string          `json:"id"`
+	DefinitionID   string          `json:"definition_id,omitempty"`
+	TaskType       string          `json:"task_type"`
+	QueueID        string          `json:"queue_id,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	Payload        json.RawMessage `json:"payload"`
+	Status         Status          `json:"status"`
+	Attempt        int             `json:"attempt"`
+	ProcessedRows  int64           `json:"processed_rows"`
+	ErrorSummary   string          `json:"error_summary,omitempty"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"`
+	FinishedAt     *time.Time      `json:"finished_at,omitempty"`
 }
 
 type Schedule struct {

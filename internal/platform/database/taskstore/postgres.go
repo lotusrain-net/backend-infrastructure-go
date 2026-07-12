@@ -1,4 +1,4 @@
-package task
+package taskstore
 
 import (
 	"context"
@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -26,7 +28,7 @@ func NewPostgresDefinitionStore(queries DefinitionQueries) *PostgresDefinitionSt
 	return &PostgresDefinitionStore{queries: queries}
 }
 
-func (store *PostgresDefinitionStore) CreateDefinition(ctx context.Context, definition NewDefinition) (Definition, error) {
+func (store *PostgresDefinitionStore) CreateDefinition(ctx context.Context, definition taskmodule.NewDefinition) (taskmodule.Definition, error) {
 	row, err := store.queries.CreateTaskDefinition(ctx, dbgen.CreateTaskDefinitionParams{
 		Name:           definition.Name,
 		TaskType:       definition.TaskType,
@@ -36,7 +38,7 @@ func (store *PostgresDefinitionStore) CreateDefinition(ctx context.Context, defi
 		TimeoutSeconds: int32(definition.Timeout / time.Second),
 	})
 	if err != nil {
-		return Definition{}, err
+		return taskmodule.Definition{}, err
 	}
 	return definitionFromRow(row), nil
 }
@@ -55,10 +57,10 @@ func NewPostgresExecutionStore(queries ExecutionQueries) *PostgresExecutionStore
 	return &PostgresExecutionStore{queries: queries}
 }
 
-func (store *PostgresExecutionStore) CreateExecution(ctx context.Context, execution NewExecution) (Execution, error) {
+func (store *PostgresExecutionStore) CreateExecution(ctx context.Context, execution taskmodule.NewExecution) (taskmodule.Execution, error) {
 	definitionID, err := nullableUUID(execution.DefinitionID)
 	if err != nil {
-		return Execution{}, err
+		return taskmodule.Execution{}, err
 	}
 	row, err := store.queries.CreateTaskExecution(ctx, dbgen.CreateTaskExecutionParams{
 		DefinitionID:   definitionID,
@@ -69,27 +71,35 @@ func (store *PostgresExecutionStore) CreateExecution(ctx context.Context, execut
 	})
 	if err != nil {
 		var postgresError *pgconn.PgError
-		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
-			return Execution{}, fmt.Errorf("%w: %s", ErrDuplicateSubmission, execution.IdempotencyKey)
+		if errors.As(err, &postgresError) {
+			switch postgresError.Code {
+			case "23505":
+				return taskmodule.Execution{}, fmt.Errorf("%w: %s", taskmodule.ErrDuplicateSubmission, execution.IdempotencyKey)
+			case "23503":
+				return taskmodule.Execution{}, taskmodule.ErrDefinitionNotFound
+			}
 		}
-		return Execution{}, err
+		return taskmodule.Execution{}, err
 	}
 	return executionFromRow(row), nil
 }
 
-func (store *PostgresExecutionStore) GetExecution(ctx context.Context, id string) (Execution, error) {
+func (store *PostgresExecutionStore) GetExecution(ctx context.Context, id string) (taskmodule.Execution, error) {
 	executionID, err := parseUUID(id)
 	if err != nil {
-		return Execution{}, err
+		return taskmodule.Execution{}, taskmodule.ErrExecutionNotFound
 	}
 	row, err := store.queries.GetTaskExecution(ctx, executionID)
 	if err != nil {
-		return Execution{}, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return taskmodule.Execution{}, taskmodule.ErrExecutionNotFound
+		}
+		return taskmodule.Execution{}, err
 	}
 	return executionFromRow(row), nil
 }
 
-func (store *PostgresExecutionStore) UpdateExecution(ctx context.Context, update ExecutionUpdate) error {
+func (store *PostgresExecutionStore) UpdateExecution(ctx context.Context, update taskmodule.ExecutionUpdate) error {
 	executionID, err := parseUUID(update.ID)
 	if err != nil {
 		return err
@@ -117,14 +127,14 @@ func NewPostgresScheduleStore(queries ScheduleQueries) *PostgresScheduleStore {
 	return &PostgresScheduleStore{queries: queries}
 }
 
-func (store *PostgresScheduleStore) ListEnabledSchedules(ctx context.Context) ([]Schedule, error) {
+func (store *PostgresScheduleStore) ListEnabledSchedules(ctx context.Context) ([]taskmodule.Schedule, error) {
 	rows, err := store.queries.ListEnabledTaskSchedules(ctx)
 	if err != nil {
 		return nil, err
 	}
-	schedules := make([]Schedule, 0, len(rows))
+	schedules := make([]taskmodule.Schedule, 0, len(rows))
 	for _, row := range rows {
-		schedules = append(schedules, Schedule{
+		schedules = append(schedules, taskmodule.Schedule{
 			ID:             formatUUID(row.ID),
 			DefinitionID:   formatUUID(row.DefinitionID),
 			CronExpression: row.CronExpression,
@@ -139,8 +149,8 @@ func (store *PostgresScheduleStore) ListEnabledSchedules(ctx context.Context) ([
 	return schedules, nil
 }
 
-func definitionFromRow(row dbgen.TaskDefinition) Definition {
-	return Definition{
+func definitionFromRow(row dbgen.TaskDefinition) taskmodule.Definition {
+	return taskmodule.Definition{
 		ID:             formatUUID(row.ID),
 		Name:           row.Name,
 		TaskType:       row.TaskType,
@@ -152,15 +162,15 @@ func definitionFromRow(row dbgen.TaskDefinition) Definition {
 	}
 }
 
-func executionFromRow(row dbgen.TaskExecution) Execution {
-	return Execution{
+func executionFromRow(row dbgen.TaskExecution) taskmodule.Execution {
+	return taskmodule.Execution{
 		ID:             formatUUID(row.ID),
 		DefinitionID:   formatUUID(row.DefinitionID),
 		TaskType:       row.TaskType,
 		QueueID:        textValue(row.QueueID),
 		IdempotencyKey: textValue(row.IdempotencyKey),
 		Payload:        row.Payload,
-		Status:         Status(row.Status),
+		Status:         taskmodule.Status(row.Status),
 		Attempt:        int(row.Attempt),
 		ProcessedRows:  row.ProcessedRows,
 		ErrorSummary:   textValue(row.ErrorSummary),

@@ -13,6 +13,7 @@ var (
 	ErrDuplicateIdentity   = errors.New("email or username already exists")
 	ErrInvalidRefreshToken = errors.New("invalid refresh token")
 	ErrPermissionDenied    = errors.New("permission denied")
+	ErrInvalidUserInput    = errors.New("invalid user input")
 )
 
 type User struct {
@@ -26,10 +27,23 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at,omitempty"`
 }
 
-type Role struct{ ID, Name, Description string }
-type Permission struct{ ID, Name, Description string }
+type Role struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+type Permission struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
 
-type CreateUserInput struct{ Email, Username, Password, DisplayName string }
+type CreateUserInput struct {
+	Email       string `json:"email"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
 
 type UserRepository interface {
 	FindByEmail(context.Context, string) (User, error)
@@ -48,7 +62,7 @@ type RBACRepository interface {
 
 type TokenPair struct {
 	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token,omitempty"`
+	RefreshToken string `json:"-"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int64  `json:"expires_in"`
 }

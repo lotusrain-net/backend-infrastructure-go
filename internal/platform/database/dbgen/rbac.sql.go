@@ -140,7 +140,8 @@ SELECT DISTINCT permissions.name
 FROM permissions
 JOIN role_permissions ON role_permissions.permission_id = permissions.id
 JOIN user_roles ON user_roles.role_id = role_permissions.role_id
-WHERE user_roles.user_id = $1
+JOIN users ON users.id = user_roles.user_id
+WHERE user_roles.user_id = $1 AND users.is_active = TRUE
 ORDER BY permissions.name
 `
 

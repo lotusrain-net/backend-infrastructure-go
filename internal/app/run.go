@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
+	"time"
 
 	"backend-infrastructure-go/internal/bootstrap"
 	"backend-infrastructure-go/internal/config"
@@ -34,5 +36,14 @@ func Execute(ctx context.Context, output io.Writer, role string) error {
 	if err != nil {
 		return fmt.Errorf("build %s: %w", role, err)
 	}
-	return bootstrap.Run(ctx, logger, cfg.ShutdownTimeout, component)
+	return executeComponent(ctx, logger, cfg.ShutdownTimeout, component)
+}
+
+func executeComponent(ctx context.Context, logger *slog.Logger, shutdownTimeout time.Duration, component bootstrap.Component) error {
+	logger.Info("service starting")
+	if err := bootstrap.Run(ctx, logger, shutdownTimeout, component); err != nil {
+		return err
+	}
+	logger.Info("service stopped")
+	return nil
 }

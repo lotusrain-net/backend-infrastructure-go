@@ -7,12 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"backend-infrastructure-go/internal/config"
+	"backend-infrastructure-go/internal/modules/audit"
+	auditpostgres "backend-infrastructure-go/internal/modules/audit/postgres"
 	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"backend-infrastructure-go/internal/platform/database"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
+	"backend-infrastructure-go/internal/platform/database/taskstore"
+	"backend-infrastructure-go/internal/platform/observability"
 	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	schedulerplatform "backend-infrastructure-go/internal/platform/scheduler"
 	"github.com/hibiken/asynq"
@@ -21,19 +26,35 @@ import (
 )
 
 type workerRuntime struct {
-	server *asynq.Server
-	mux    *asynq.ServeMux
-	client *asynq.Client
-	pool   *pgxpool.Pool
-	redis  *redis.Client
+	server  *asynq.Server
+	mux     *asynq.ServeMux
+	pool    *pgxpool.Pool
+	redis   *redis.Client
+	metrics *http.Server
 }
 
-func (r *workerRuntime) Run(context.Context) error { return r.server.Run(r.mux) }
-func (r *workerRuntime) Shutdown(context.Context) error {
+func (r *workerRuntime) Run(ctx context.Context) error {
+	results := make(chan error, 2)
+	go func() { results <- r.server.Run(r.mux) }()
+	go func() {
+		err := r.metrics.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		results <- err
+	}()
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-results:
+		return err
+	}
+}
+func (r *workerRuntime) Shutdown(ctx context.Context) error {
 	r.server.Shutdown()
 	var err error
-	if r.client != nil {
-		err = errors.Join(err, r.client.Close())
+	if r.metrics != nil {
+		err = errors.Join(err, r.metrics.Shutdown(ctx))
 	}
 	if r.redis != nil {
 		err = errors.Join(err, r.redis.Close())
@@ -50,14 +71,15 @@ func BuildWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) (*
 		return nil, err
 	}
 	queries := dbgen.New(pool)
-	store := taskmodule.NewPostgresExecutionStore(queries)
+	store := taskstore.NewPostgresExecutionStore(queries)
 	registry := taskmodule.NewRegistry()
 	if err := registry.Register(taskmodule.SystemTestTaskType, taskmodule.SystemTestHandler{}); err != nil {
 		pool.Close()
 		_ = redisClient.Close()
 		return nil, err
 	}
-	processor := taskmodule.NewProcessor(store, registry, time.Now)
+	metrics := observability.New(observability.Config{Namespace: "backend", KnownTaskTypes: []string{taskmodule.SystemTestTaskType}})
+	processor := taskmodule.NewProcessor(store, registry, time.Now, metrics)
 	handler := queueplatform.NewAsynqHandler(processor)
 	failures := queueplatform.NewFailureHandler(processor)
 	client := asynq.NewClientFromRedisClient(redisClient)
@@ -68,19 +90,36 @@ func BuildWorker(ctx context.Context, cfg config.Config, logger *slog.Logger) (*
 	mux := asynq.NewServeMux()
 	mux.Handle(taskmodule.SystemTestTaskType, handler)
 	mux.Handle(taskmodule.ScheduledDispatchTaskType, scheduledAsynqHandler{handler: dispatcher})
-	return &workerRuntime{server: server, mux: mux, client: client, pool: pool, redis: redisClient}, nil
+	return &workerRuntime{server: server, mux: mux, pool: pool, redis: redisClient, metrics: newWorkerMetricsServer(cfg, metrics.Handler())}, nil
+}
+
+func newWorkerMetricsServer(cfg config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              cfg.WorkerMetricsAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    1 << 16,
+	}
 }
 
 type schedulerRuntime struct {
 	scheduler *asynq.Scheduler
-	refresher *schedulerplatform.Refresher
+	refresher scheduleRefresher
+	audit     auditPreserver
 	interval  time.Duration
 	pool      *pgxpool.Pool
 	redis     *redis.Client
 }
 
+type scheduleRefresher interface {
+	Refresh(context.Context) error
+}
+
 func (r *schedulerRuntime) Run(ctx context.Context) error {
-	if err := r.refresher.Refresh(ctx); err != nil {
+	if err := r.refreshSchedules(ctx); err != nil {
 		return err
 	}
 	if err := r.scheduler.Start(); err != nil {
@@ -93,11 +132,28 @@ func (r *schedulerRuntime) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := r.refresher.Refresh(ctx); err != nil {
+			if err := r.refreshSchedules(ctx); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func (r *schedulerRuntime) refreshSchedules(ctx context.Context) error {
+	err := r.refresher.Refresh(ctx)
+	if r.audit == nil {
+		return err
+	}
+	result := audit.ResultSuccess
+	if err != nil {
+		result = audit.ResultFailure
+	}
+	return r.audit.Preserve(ctx, audit.NewEvent{
+		RequestID:    "scheduler-" + newUUID(),
+		Action:       "scheduling.refresh",
+		Result:       result,
+		ResourceType: "task_schedule",
+	}, err)
 }
 func (r *schedulerRuntime) Shutdown(context.Context) error {
 	r.scheduler.Shutdown()
@@ -117,12 +173,21 @@ func BuildScheduler(ctx context.Context, cfg config.Config, logger *slog.Logger)
 		return nil, err
 	}
 	queries := dbgen.New(pool)
-	source := taskmodule.NewScheduleService(taskmodule.NewPostgresScheduleStore(queries))
-	scheduler := asynq.NewSchedulerFromRedisClient(redisClient, &asynq.SchedulerOpts{Logger: asynqLogger{logger: logger}})
+	source := taskmodule.NewScheduleService(taskstore.NewPostgresScheduleStore(queries))
+	scheduler := newAsynqScheduler(cfg, logger)
 	registrar := schedulerplatform.NewAsynqRegistrar(scheduler, func(schedule taskmodule.Schedule) (*asynq.Task, []asynq.Option, error) {
 		return buildScheduledTask(schedule, cfg.AsynqQueue)
 	})
-	return &schedulerRuntime{scheduler: scheduler, refresher: schedulerplatform.NewRefresher(source, registrar), interval: cfg.SchedulerRefreshInterval, pool: pool, redis: redisClient}, nil
+	auditRecorder := audit.NewBestEffortRecorder(audit.NewService(auditpostgres.New(queries)), logger, nil)
+	return &schedulerRuntime{scheduler: scheduler, refresher: schedulerplatform.NewRefresher(source, registrar), audit: auditRecorder, interval: cfg.SchedulerRefreshInterval, pool: pool, redis: redisClient}, nil
+}
+
+func newAsynqScheduler(cfg config.Config, logger *slog.Logger) *asynq.Scheduler {
+	return asynq.NewScheduler(asynq.RedisClientOpt{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	}, &asynq.SchedulerOpts{Logger: asynqLogger{logger: logger}})
 }
 
 func openTaskDependencies(ctx context.Context, cfg config.Config) (*pgxpool.Pool, *redis.Client, error) {

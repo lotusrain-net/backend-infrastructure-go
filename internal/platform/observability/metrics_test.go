@@ -59,8 +59,9 @@ func TestNormalizePathReplacesDynamicIdentifiers(t *testing.T) {
 	for input, want := range map[string]string{
 		"/users/42": "/users/{id}",
 		"/jobs/8d3f4a0e-dab4-4af7-bd44-dbf3213c5b66": "/jobs/{id}",
-		"/users/{id}": "/users/{id}",
-		"":            "/unmatched",
+		"/users/{id}":                    "/users/{id}",
+		"/users/{userID}/roles/{roleID}": "/users/{id}/roles/{id}",
+		"":                               "/unmatched",
 	} {
 		if got := observability.NormalizePath(input); got != want {
 			t.Errorf("NormalizePath(%q) = %q, want %q", input, got, want)
@@ -80,6 +81,20 @@ func TestHTTPMiddlewareUsesRoutePatternInsteadOfRawIdentifier(t *testing.T) {
 	body := scrape(t, metrics)
 	if !strings.Contains(body, `route="/users/{id}",status_class="2xx"`) || strings.Contains(body, "customer-unique-value") {
 		t.Fatalf("metrics contain an unbounded raw path\n%s", body)
+	}
+}
+
+func TestHTTPMiddlewareOutsideRouterUsesRegisteredRawPath(t *testing.T) {
+	metrics := observability.New(observability.Config{Namespace: "backend", KnownRoutes: []string{"/health/ready"}})
+	router := chi.NewRouter()
+	router.Get("/health/ready", func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) })
+	handler := metrics.HTTPMiddleware(router)
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+
+	body := scrape(t, metrics)
+	if !strings.Contains(body, `route="/health/ready",status_class="2xx"`) || strings.Contains(body, `route="/unmatched",status_class="2xx"`) {
+		t.Fatalf("registered route was not observed\n%s", body)
 	}
 }
 

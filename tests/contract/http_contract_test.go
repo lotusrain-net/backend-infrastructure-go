@@ -58,9 +58,18 @@ func TestLoginHTTPContractReturnsTokenEnvelopeAndRefreshCookie(t *testing.T) {
 	if envelope.Code != http.StatusOK || envelope.Msg != "success" || envelope.Data.AccessToken == "" {
 		t.Fatalf("login envelope = %+v", envelope)
 	}
-	cookies := recorder.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != iam.RefreshCookieName || !cookies[0].HttpOnly {
-		t.Fatalf("refresh cookies = %+v", cookies)
+	if envelope.Data.RefreshToken != "" {
+		t.Fatal("refresh token must not be exposed in the JSON response")
+	}
+	cookies := make(map[string]*http.Cookie)
+	for _, cookie := range recorder.Result().Cookies() {
+		cookies[cookie.Name] = cookie
+	}
+	if cookies[iam.AccessCookieName] == nil || cookies[iam.RefreshCookieName] == nil || !cookies[iam.AccessCookieName].HttpOnly || !cookies[iam.RefreshCookieName].HttpOnly {
+		t.Fatalf("authentication cookies = %+v", cookies)
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("authentication cache headers = %v", recorder.Header())
 	}
 }
 

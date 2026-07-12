@@ -17,7 +17,7 @@ WHERE id = $1;
 -- name: UpdateUserPassword :exec
 UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1;
 
--- name: SetUserActive :exec
+-- name: SetUserActive :execrows
 UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: DeleteUser :exec

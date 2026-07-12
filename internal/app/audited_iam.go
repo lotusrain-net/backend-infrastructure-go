@@ -62,5 +62,14 @@ func (a *auditedIAM) record(ctx context.Context, action, resourceType, resourceI
 	if primary != nil {
 		result = audit.ResultFailure
 	}
-	return a.audit.Preserve(ctx, audit.NewEvent{RequestID: requestcontext.RequestID(ctx), ActorID: actorID, Action: action, Result: result, ResourceType: resourceType, ResourceID: resourceID}, primary)
+	if actorID == nil {
+		if subject := iam.Subject(ctx); subject != "" {
+			actorID = &subject
+		}
+	}
+	metadata := audit.RequestMetadataFromContext(ctx)
+	return a.audit.Preserve(ctx, audit.NewEvent{
+		RequestID: requestcontext.RequestID(ctx), ActorID: actorID, Action: action, Result: result,
+		ResourceType: resourceType, ResourceID: resourceID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent,
+	}, primary)
 }

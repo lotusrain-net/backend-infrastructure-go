@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-var ErrDuplicateSubmission = errors.New("duplicate task submission")
+var (
+	ErrDuplicateSubmission = errors.New("duplicate task submission")
+	ErrDefinitionNotFound  = errors.New("task definition not found")
+	ErrExecutionNotFound   = errors.New("task execution not found")
+)
 
 type NewExecution struct {
 	DefinitionID   string
@@ -103,10 +107,19 @@ type Processor struct {
 	store    ExecutionStore
 	registry *Registry
 	now      func() time.Time
+	observer TaskObserver
 }
 
-func NewProcessor(store ExecutionStore, registry *Registry, now func() time.Time) *Processor {
-	return &Processor{store: store, registry: registry, now: now}
+type TaskObserver interface {
+	ObserveTask(taskType, status string, duration time.Duration)
+}
+
+func NewProcessor(store ExecutionStore, registry *Registry, now func() time.Time, observers ...TaskObserver) *Processor {
+	var observer TaskObserver
+	if len(observers) > 0 {
+		observer = observers[0]
+	}
+	return &Processor{store: store, registry: registry, now: now, observer: observer}
 }
 
 func (processor *Processor) Process(ctx context.Context, message Message, attempt int) error {
@@ -126,6 +139,7 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 	}); err != nil {
 		return fmt.Errorf("mark task running: %w", err)
 	}
+	processor.observe(message.TaskType, StatusRunning, 0)
 
 	handler, err := processor.registry.Resolve(message.TaskType)
 	if err != nil {
@@ -146,6 +160,7 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 			}); updateErr != nil {
 				return errors.Join(err, fmt.Errorf("mark task cancelled: %w", updateErr))
 			}
+			processor.observe(message.TaskType, StatusCancelled, finishedAt.Sub(startedAt))
 		}
 		return err
 	}
@@ -161,6 +176,7 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 	}); err != nil {
 		return fmt.Errorf("mark task succeeded: %w", err)
 	}
+	processor.observe(message.TaskType, StatusSucceeded, finishedAt.Sub(startedAt))
 	return nil
 }
 
@@ -182,5 +198,16 @@ func (processor *Processor) Fail(ctx context.Context, message Message, attempt i
 	}); err != nil {
 		return fmt.Errorf("mark task failed: %w", err)
 	}
+	duration := time.Duration(0)
+	if execution.StartedAt != nil {
+		duration = finishedAt.Sub(*execution.StartedAt)
+	}
+	processor.observe(message.TaskType, StatusFailed, duration)
 	return nil
+}
+
+func (processor *Processor) observe(taskType string, status Status, duration time.Duration) {
+	if processor.observer != nil {
+		processor.observer.ObserveTask(taskType, string(status), duration)
+	}
 }

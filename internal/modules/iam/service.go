@@ -2,39 +2,41 @@ package iam
 
 import (
 	"context"
-	"errors"
 	"strings"
 )
+
+const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 type Service struct {
 	users     UserRepository
 	rbac      RBACRepository
-	passwords PasswordHasher
+	passwords PasswordService
 	jwt       *JWTManager
 	refresh   *RefreshStore
 }
 
-func NewService(users UserRepository, rbac RBACRepository, passwords PasswordHasher, jwt *JWTManager, refresh *RefreshStore) *Service {
+func NewService(users UserRepository, rbac RBACRepository, passwords PasswordService, jwt *JWTManager, refresh *RefreshStore) *Service {
 	return &Service{users: users, rbac: rbac, passwords: passwords, jwt: jwt, refresh: refresh}
 }
 
 func (s *Service) Login(ctx context.Context, email, password string) (TokenPair, error) {
 	user, err := s.users.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
-	if err != nil {
+	passwordHash := dummyPasswordHash
+	if err == nil {
+		passwordHash = user.PasswordHash
+	}
+	ok, verifyErr := s.passwords.Verify(password, passwordHash)
+	if err != nil || verifyErr != nil || !ok {
 		return TokenPair{}, ErrInvalidCredentials
 	}
 	if !user.Active {
 		return TokenPair{}, ErrInactiveUser
 	}
-	ok, err := s.passwords.Verify(password, user.PasswordHash)
-	if err != nil || !ok {
-		return TokenPair{}, ErrInvalidCredentials
-	}
 	return s.issuePair(ctx, user.ID)
 }
 
 func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
-	userID, err := s.refresh.Consume(ctx, raw)
+	userID, err := s.refresh.Lookup(ctx, raw)
 	if err != nil {
 		return TokenPair{}, ErrInvalidRefreshToken
 	}
@@ -42,7 +44,15 @@ func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
 	if err != nil || !user.Active {
 		return TokenPair{}, ErrInvalidRefreshToken
 	}
-	return s.issuePair(ctx, userID)
+	access, err := s.jwt.Issue(userID)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	refresh, err := s.refresh.Rotate(ctx, raw, userID)
+	if err != nil {
+		return TokenPair{}, ErrInvalidRefreshToken
+	}
+	return s.tokenPair(access, refresh), nil
 }
 
 func (s *Service) Logout(ctx context.Context, raw string) error { return s.refresh.Revoke(ctx, raw) }
@@ -65,7 +75,7 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, 
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	input.Username = strings.TrimSpace(input.Username)
 	if input.Email == "" || input.Username == "" || len(input.Password) < 12 {
-		return User{}, errors.New("invalid user input")
+		return User{}, ErrInvalidUserInput
 	}
 	hash, err := s.passwords.Hash(input.Password)
 	if err != nil {
@@ -77,7 +87,9 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, 
 
 func (s *Service) SetUserActive(ctx context.Context, userID string, active bool) error {
 	if !active {
-		_ = s.refresh.RevokeAll(ctx, userID)
+		if err := s.refresh.RevokeAll(ctx, userID); err != nil {
+			return err
+		}
 	}
 	return s.users.SetActive(ctx, userID, active)
 }
@@ -111,5 +123,9 @@ func (s *Service) issuePair(ctx context.Context, userID string) (TokenPair, erro
 	if err != nil {
 		return TokenPair{}, err
 	}
-	return TokenPair{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer", ExpiresIn: int64(s.jwt.ttl.Seconds())}, nil
+	return s.tokenPair(access, refresh), nil
+}
+
+func (s *Service) tokenPair(access, refresh string) TokenPair {
+	return TokenPair{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer", ExpiresIn: int64(s.jwt.ttl.Seconds())}
 }

@@ -69,14 +69,18 @@ paths:
           description: Authentication succeeded.
           headers:
             Set-Cookie:
-              description: HttpOnly refresh token cookie.
+              description: HttpOnly access and refresh token cookies. The access cookie expires with the JWT access token.
               schema:
                 type: string
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/TokenPairEnvelope"
-        "400":
+        "422":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -96,9 +100,13 @@ paths:
           description: Token rotation succeeded.
           headers:
             Set-Cookie:
-              description: Rotated HttpOnly refresh token cookie.
+              description: Rotated HttpOnly access and refresh token cookies. The access cookie expires with the JWT access token.
               schema:
                 type: string
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
           content:
             application/json:
               schema:
@@ -119,6 +127,15 @@ paths:
       responses:
         "200":
           description: Logout succeeded.
+          headers:
+            Set-Cookie:
+              description: Expired access and refresh token cookies.
+              schema:
+                type: string
+            Cache-Control:
+              $ref: "#/components/headers/Cache-Control"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
           content:
             application/json:
               schema:
@@ -161,12 +178,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserEnvelope"
-        "400":
+        "422":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
   /api/v1/users/{userID}/active:
@@ -191,7 +210,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BooleanEnvelope"
-        "400":
+        "422":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -348,12 +367,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TaskExecutionEnvelope"
-        "400":
+        "422":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
   /api/v1/task-executions/{executionID}:
@@ -399,6 +420,16 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+    Cache-Control:
+      description: Prevents storage of authentication responses.
+      schema:
+        type: string
+        enum: [no-store]
+    Pragma:
+      description: Prevents caching by HTTP/1.0 intermediaries.
+      schema:
+        type: string
+        enum: [no-cache]
   parameters:
     UserID:
       name: userID
@@ -588,9 +619,6 @@ components:
         access_token:
           type: string
           minLength: 1
-        refresh_token:
-          type: string
-          minLength: 1
         token_type:
           type: string
           enum: [Bearer]
@@ -647,7 +675,7 @@ components:
           minLength: 1
         password:
           type: string
-          minLength: 8
+          minLength: 12
         display_name:
           type: string
     SetActiveRequest:
@@ -767,7 +795,7 @@ components:
           format: uuid
         task_type:
           type: string
-          minLength: 1
+          enum: [system.test]
         payload:
           type: object
           additionalProperties: true

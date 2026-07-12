@@ -3,7 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"testing"
+	"time"
 
 	"backend-infrastructure-go/internal/modules/audit"
 	"backend-infrastructure-go/internal/modules/iam"
@@ -46,5 +50,24 @@ func TestAuditedIAMPreservesAuthorizationFailureAndRecordsIt(t *testing.T) {
 	}
 	if recorder.event.Action != "authorization.check" || recorder.event.Result != audit.ResultFailure || recorder.event.ActorID == nil || *recorder.event.ActorID != "user-1" {
 		t.Fatalf("event=%+v", recorder.event)
+	}
+}
+
+func TestAuditedIAMRecordsAuthenticatedActorAndRequestMetadata(t *testing.T) {
+	recorder := &preserveStub{}
+	app := newAuditedIAM(iamStub{}, recorder)
+	ip := netip.MustParseAddr("203.0.113.10")
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("administrator-1")
+	request := httptest.NewRequest(http.MethodPost, "/", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request = request.WithContext(audit.WithRequestMetadata(request.Context(), audit.RequestMetadata{IPAddress: &ip, UserAgent: "admin-client/1.0"}))
+	iam.Authenticate(jwt)(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		if _, err := app.CreateUser(request.Context(), iam.CreateUserInput{}); err != nil {
+			t.Error(err)
+		}
+	})).ServeHTTP(httptest.NewRecorder(), request)
+	if recorder.event.ActorID == nil || *recorder.event.ActorID != "administrator-1" || recorder.event.IPAddress == nil || *recorder.event.IPAddress != ip || recorder.event.UserAgent != "admin-client/1.0" {
+		t.Fatalf("event = %+v", recorder.event)
 	}
 }

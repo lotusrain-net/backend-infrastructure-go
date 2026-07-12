@@ -94,7 +94,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	return i, err
 }
 
-const setUserActive = `-- name: SetUserActive :exec
+const setUserActive = `-- name: SetUserActive :execrows
 UPDATE users SET is_active = $2, updated_at = NOW() WHERE id = $1
 `
 
@@ -103,9 +103,12 @@ type SetUserActiveParams struct {
 	IsActive bool        `json:"is_active"`
 }
 
-func (q *Queries) SetUserActive(ctx context.Context, arg SetUserActiveParams) error {
-	_, err := q.db.Exec(ctx, setUserActive, arg.ID, arg.IsActive)
-	return err
+func (q *Queries) SetUserActive(ctx context.Context, arg SetUserActiveParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUserActive, arg.ID, arg.IsActive)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec

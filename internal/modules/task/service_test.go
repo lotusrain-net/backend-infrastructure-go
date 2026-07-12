@@ -4,9 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
+
+type observerStub struct{ statuses []Status }
+
+func (stub *observerStub) ObserveTask(_ string, status string, _ time.Duration) {
+	stub.statuses = append(stub.statuses, Status(status))
+}
 
 type executionStoreStub struct {
 	execution Execution
@@ -100,7 +107,8 @@ func TestProcessorSynchronizesRunningAndSucceededStatuses(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	processor := NewProcessor(store, registry, func() time.Time { return time.Unix(200, 0) })
+	observer := &observerStub{}
+	processor := NewProcessor(store, registry, func() time.Time { return time.Unix(200, 0) }, observer)
 
 	if err := processor.Process(context.Background(), Message{ExecutionID: "execution-1", TaskType: "report.generate", Payload: json.RawMessage(`{}`)}, 2); err != nil {
 		t.Fatalf("Process() error = %v", err)
@@ -113,6 +121,9 @@ func TestProcessorSynchronizesRunningAndSucceededStatuses(t *testing.T) {
 	}
 	if store.updates[1].Status != StatusSucceeded || store.updates[1].ProcessedRows != 9 {
 		t.Fatalf("second update = %+v, want succeeded with 9 rows", store.updates[1])
+	}
+	if got := observer.statuses; !slices.Equal(got, []Status{StatusRunning, StatusSucceeded}) {
+		t.Fatalf("observed statuses = %v", got)
 	}
 }
 
@@ -128,7 +139,8 @@ func TestProcessorMarksInterruptedHandlerCancelled(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	processor := NewProcessor(store, registry, func() time.Time { return time.Unix(200, 0) })
+	observer := &observerStub{}
+	processor := NewProcessor(store, registry, func() time.Time { return time.Unix(200, 0) }, observer)
 
 	err := processor.Process(ctx, Message{ExecutionID: "execution-1", TaskType: "report.generate", Payload: json.RawMessage(`{}`)}, 1)
 	if !errors.Is(err, context.Canceled) {
@@ -137,13 +149,17 @@ func TestProcessorMarksInterruptedHandlerCancelled(t *testing.T) {
 	if got := store.updates[len(store.updates)-1].Status; got != StatusCancelled {
 		t.Fatalf("final status = %s, want cancelled", got)
 	}
+	if got := observer.statuses; !slices.Equal(got, []Status{StatusRunning, StatusCancelled}) {
+		t.Fatalf("observed statuses = %v", got)
+	}
 }
 
 func TestProcessorMarksRetryExhaustionFailed(t *testing.T) {
 	t.Parallel()
 
 	store := &executionStoreStub{execution: Execution{ID: "execution-1", TaskType: "report.generate", Status: StatusRunning}}
-	processor := NewProcessor(store, NewRegistry(), func() time.Time { return time.Unix(200, 0) })
+	observer := &observerStub{}
+	processor := NewProcessor(store, NewRegistry(), func() time.Time { return time.Unix(200, 0) }, observer)
 	wantErr := errors.New("dependency failed")
 
 	if err := processor.Fail(context.Background(), Message{ExecutionID: "execution-1"}, 4, wantErr); err != nil {
@@ -155,5 +171,8 @@ func TestProcessorMarksRetryExhaustionFailed(t *testing.T) {
 	update := store.updates[0]
 	if update.Status != StatusFailed || update.Attempt != 4 || update.ErrorSummary != wantErr.Error() {
 		t.Fatalf("failure update = %+v", update)
+	}
+	if got := observer.statuses; !slices.Equal(got, []Status{StatusFailed}) {
+		t.Fatalf("observed statuses = %v", got)
 	}
 }

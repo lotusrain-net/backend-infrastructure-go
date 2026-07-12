@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	taskmodule "backend-infrastructure-go/internal/modules/task"
 
@@ -68,5 +69,39 @@ func TestScheduleSpecPreservesExplicitUTC(t *testing.T) {
 	got := scheduleSpec(taskmodule.Schedule{CronExpression: "0 * * * *", Timezone: "UTC"})
 	if got != "CRON_TZ=UTC 0 * * * *" {
 		t.Fatalf("scheduleSpec() = %q, want explicit UTC", got)
+	}
+}
+
+func TestAsynqRegistrarRefreshesWhenExecutionSettingsChange(t *testing.T) {
+	t.Parallel()
+
+	backend := &periodicSchedulerStub{}
+	factory := func(schedule taskmodule.Schedule) (*asynq.Task, []asynq.Option, error) {
+		return asynq.NewTask(schedule.TaskType, schedule.Payload), nil, nil
+	}
+	registrar := NewAsynqRegistrar(backend, factory)
+	schedule := taskmodule.Schedule{
+		ID: "schedule-1", DefinitionID: "definition-1", CronExpression: "0 * * * *", Timezone: "UTC",
+		Payload: json.RawMessage(`{"scope":"all"}`), Enabled: true, TaskType: "report.generate", MaxRetries: 3, Timeout: time.Minute,
+	}
+
+	variants := []taskmodule.Schedule{schedule}
+	changedTaskType := schedule
+	changedTaskType.TaskType = "report.refresh"
+	variants = append(variants, changedTaskType)
+	changedRetries := changedTaskType
+	changedRetries.MaxRetries = 5
+	variants = append(variants, changedRetries)
+	changedTimeout := changedRetries
+	changedTimeout.Timeout = 2 * time.Minute
+	variants = append(variants, changedTimeout)
+
+	for _, variant := range variants {
+		if err := registrar.Replace(context.Background(), []taskmodule.Schedule{variant}); err != nil {
+			t.Fatalf("Replace() error = %v", err)
+		}
+	}
+	if len(backend.registered) != len(variants) {
+		t.Fatalf("register count = %d, want %d", len(backend.registered), len(variants))
 	}
 }

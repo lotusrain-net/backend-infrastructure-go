@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ type Config struct {
 	Environment              string
 	ServiceName              string
 	HTTPAddr                 string
+	WorkerMetricsAddr        string
 	LogLevel                 string
 	DatabaseURL              string
 	RedisAddr                string
@@ -39,6 +42,9 @@ type Config struct {
 	AdminEmail               string
 	AdminUsername            string
 	AdminPassword            string
+	CORSAllowedOrigins       []string
+	CORSAllowCredentials     bool
+	TrustedProxyCIDRs        []netip.Prefix
 }
 
 func Load() (Config, error) {
@@ -94,11 +100,20 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	corsAllowCredentials, err := boolean("CORS_ALLOW_CREDENTIALS", false)
+	if err != nil {
+		return Config{}, err
+	}
+	trustedProxyCIDRs, err := prefixes("TRUSTED_PROXY_CIDRS")
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		Environment:              value("APP_ENV", "development"),
 		ServiceName:              value("SERVICE_NAME", "backend-infrastructure-go"),
 		HTTPAddr:                 value("HTTP_ADDR", ":8080"),
+		WorkerMetricsAddr:        value("WORKER_METRICS_ADDR", ":9090"),
 		LogLevel:                 strings.ToLower(value("LOG_LEVEL", "info")),
 		DatabaseURL:              value("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/backend?sslmode=disable"),
 		RedisAddr:                value("REDIS_ADDR", "localhost:6379"),
@@ -123,6 +138,9 @@ func Load() (Config, error) {
 		AdminEmail:               strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))),
 		AdminUsername:            strings.TrimSpace(os.Getenv("ADMIN_USERNAME")),
 		AdminPassword:            os.Getenv("ADMIN_PASSWORD"),
+		CORSAllowedOrigins:       list("CORS_ALLOWED_ORIGINS"),
+		CORSAllowCredentials:     corsAllowCredentials,
+		TrustedProxyCIDRs:        trustedProxyCIDRs,
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -132,6 +150,9 @@ func Load() (Config, error) {
 }
 
 func (c Config) ValidateAPI() error {
+	if len(c.JWTSecret) < minimumSecretLength {
+		return fmt.Errorf("JWT_SECRET must contain at least %d bytes", minimumSecretLength)
+	}
 	if !strings.Contains(c.AdminEmail, "@") {
 		return errors.New("ADMIN_EMAIL is required and must be an email")
 	}
@@ -140,6 +161,17 @@ func (c Config) ValidateAPI() error {
 	}
 	if len(c.AdminPassword) < 12 {
 		return errors.New("ADMIN_PASSWORD must contain at least 12 bytes")
+	}
+	if c.Environment == "production" {
+		if !c.SecureCookies {
+			return errors.New("COOKIE_SECURE must be true in production")
+		}
+		if isPlaceholderSecret(c.JWTSecret) {
+			return errors.New("JWT_SECRET must not use a public placeholder in production")
+		}
+		if isPlaceholderSecret(c.AdminPassword) {
+			return errors.New("ADMIN_PASSWORD must not use a public placeholder in production")
+		}
 	}
 	return nil
 }
@@ -154,14 +186,25 @@ func (c Config) Validate() error {
 	if c.HTTPAddr == "" {
 		return errors.New("HTTP_ADDR is required")
 	}
+	if c.WorkerMetricsAddr == "" {
+		return errors.New("WORKER_METRICS_ADDR is required")
+	}
 	if c.DatabaseURL == "" {
 		return errors.New("DATABASE_URL is required")
 	}
+	if c.Environment == "production" {
+		parsed, err := url.Parse(c.DatabaseURL)
+		if err != nil {
+			return fmt.Errorf("DATABASE_URL is invalid: %w", err)
+		}
+		if parsed.User != nil {
+			if password, ok := parsed.User.Password(); ok && isPlaceholderSecret(password) {
+				return errors.New("DATABASE_URL must not use a public placeholder password in production")
+			}
+		}
+	}
 	if c.RedisAddr == "" {
 		return errors.New("REDIS_ADDR is required")
-	}
-	if len(c.JWTSecret) < minimumSecretLength {
-		return fmt.Errorf("JWT_SECRET must contain at least %d bytes", minimumSecretLength)
 	}
 	switch c.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -226,6 +269,38 @@ func value(name, fallback string) string {
 		return strings.TrimSpace(current)
 	}
 	return fallback
+}
+
+func isPlaceholderSecret(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(normalized, "replace-with-") || strings.HasPrefix(normalized, "example-")
+}
+
+func list(name string) []string {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil
+	}
+	values := make([]string, 0)
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			values = append(values, item)
+		}
+	}
+	return values
+}
+
+func prefixes(name string) ([]netip.Prefix, error) {
+	values := list(name)
+	result := make([]netip.Prefix, 0, len(values))
+	for _, value := range values {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		result = append(result, prefix.Masked())
+	}
+	return result, nil
 }
 
 func duration(name string, fallback time.Duration) (time.Duration, error) {

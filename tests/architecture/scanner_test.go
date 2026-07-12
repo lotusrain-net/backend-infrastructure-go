@@ -65,10 +65,5 @@ func isAdapterFile(path string) bool {
 		strings.Contains(normalized, "/adapters/") {
 		return true
 	}
-	switch normalized {
-	case "internal/modules/iam/repository.go", "internal/modules/task/postgres.go":
-		return true
-	default:
-		return false
-	}
+	return false
 }

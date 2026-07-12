@@ -13,6 +13,16 @@ type Config struct {
 	TrustedProxies []netip.Prefix
 }
 
+func Middleware(config Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			metadata := Extract(request, config)
+			ctx := audit.WithRequestMetadata(request.Context(), metadata)
+			next.ServeHTTP(writer, request.WithContext(ctx))
+		})
+	}
+}
+
 func Extract(request *http.Request, config Config) audit.RequestMetadata {
 	if request == nil {
 		return audit.RequestMetadata{}

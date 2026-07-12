@@ -8,7 +8,7 @@ import (
 
 func TestExecuteRejectsInvalidConfiguration(t *testing.T) {
 	setCommandEnvironment(t)
-	t.Setenv("JWT_SECRET", "short")
+	t.Setenv("SERVICE_NAME", " ")
 
 	err := Execute(context.Background(), &bytes.Buffer{}, "api")
 	if err == nil {
