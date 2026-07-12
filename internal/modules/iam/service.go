@@ -1,0 +1,115 @@
+package iam
+
+import (
+	"context"
+	"errors"
+	"strings"
+)
+
+type Service struct {
+	users     UserRepository
+	rbac      RBACRepository
+	passwords PasswordHasher
+	jwt       *JWTManager
+	refresh   *RefreshStore
+}
+
+func NewService(users UserRepository, rbac RBACRepository, passwords PasswordHasher, jwt *JWTManager, refresh *RefreshStore) *Service {
+	return &Service{users: users, rbac: rbac, passwords: passwords, jwt: jwt, refresh: refresh}
+}
+
+func (s *Service) Login(ctx context.Context, email, password string) (TokenPair, error) {
+	user, err := s.users.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return TokenPair{}, ErrInvalidCredentials
+	}
+	if !user.Active {
+		return TokenPair{}, ErrInactiveUser
+	}
+	ok, err := s.passwords.Verify(password, user.PasswordHash)
+	if err != nil || !ok {
+		return TokenPair{}, ErrInvalidCredentials
+	}
+	return s.issuePair(ctx, user.ID)
+}
+
+func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
+	userID, err := s.refresh.Consume(ctx, raw)
+	if err != nil {
+		return TokenPair{}, ErrInvalidRefreshToken
+	}
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil || !user.Active {
+		return TokenPair{}, ErrInvalidRefreshToken
+	}
+	return s.issuePair(ctx, userID)
+}
+
+func (s *Service) Logout(ctx context.Context, raw string) error { return s.refresh.Revoke(ctx, raw) }
+func (s *Service) RevokeAll(ctx context.Context, userID string) error {
+	return s.refresh.RevokeAll(ctx, userID)
+}
+
+func (s *Service) CurrentUser(ctx context.Context, userID string) (User, error) {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		return User{}, ErrNotFound
+	}
+	if !user.Active {
+		return User{}, ErrInactiveUser
+	}
+	return user, nil
+}
+
+func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Username = strings.TrimSpace(input.Username)
+	if input.Email == "" || input.Username == "" || len(input.Password) < 12 {
+		return User{}, errors.New("invalid user input")
+	}
+	hash, err := s.passwords.Hash(input.Password)
+	if err != nil {
+		return User{}, err
+	}
+	input.Password = hash
+	return s.users.Create(ctx, input)
+}
+
+func (s *Service) SetUserActive(ctx context.Context, userID string, active bool) error {
+	if !active {
+		_ = s.refresh.RevokeAll(ctx, userID)
+	}
+	return s.users.SetActive(ctx, userID, active)
+}
+func (s *Service) Roles(ctx context.Context) ([]Role, error) { return s.rbac.Roles(ctx) }
+func (s *Service) Permissions(ctx context.Context) ([]Permission, error) {
+	return s.rbac.Permissions(ctx)
+}
+func (s *Service) AssignRole(ctx context.Context, userID, roleID string) error {
+	return s.rbac.AssignRole(ctx, userID, roleID)
+}
+func (s *Service) GrantPermission(ctx context.Context, roleID, permissionID string) error {
+	return s.rbac.GrantPermission(ctx, roleID, permissionID)
+}
+func (s *Service) Authorize(ctx context.Context, userID, required string) error {
+	p, err := s.rbac.PermissionsForUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if !HasPermission(p, required) {
+		return ErrPermissionDenied
+	}
+	return nil
+}
+
+func (s *Service) issuePair(ctx context.Context, userID string) (TokenPair, error) {
+	access, err := s.jwt.Issue(userID)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	refresh, err := s.refresh.Issue(ctx, userID)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	return TokenPair{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer", ExpiresIn: int64(s.jwt.ttl.Seconds())}, nil
+}
