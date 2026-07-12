@@ -39,7 +39,7 @@ func TestSeedDownExplicitlyRemovesEverySeedPermissionReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(contents)
+	text := strings.ReplaceAll(string(contents), "\r\n", "\n")
 	referenceDelete := "DELETE FROM role_permissions\nWHERE permission_id IN"
 	if !strings.Contains(text, referenceDelete) {
 		t.Fatalf("seed down must explicitly remove all permission references before deleting seed permissions")

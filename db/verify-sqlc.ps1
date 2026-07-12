@@ -11,10 +11,14 @@ if (-not $tempRoot.StartsWith($tempBase, [System.StringComparison]::OrdinalIgnor
 function Get-GeneratedHashes([string]$Root) {
     $resolvedRoot = [System.IO.Path]::GetFullPath($Root)
     $hashes = @{}
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
     Get-ChildItem -LiteralPath $resolvedRoot -Filter "*.go" -File -Recurse | ForEach-Object {
         $relative = $_.FullName.Substring($resolvedRoot.Length).TrimStart('\', '/')
-        $hashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        $normalized = [System.IO.File]::ReadAllText($_.FullName).Replace("`r`n", "`n")
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+        $hashes[$relative] = [BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "")
     }
+    $sha256.Dispose()
     return $hashes
 }
 
