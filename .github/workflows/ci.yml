@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - name: Download modules
+        run: go mod download
+      - name: Unit and package tests
+        run: go test -count=1 ./...
+      - name: Race detector
+        run: go test -race -count=1 ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build all commands
+        run: go build ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+      - name: Vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Verify generated sqlc output
+        shell: pwsh
+        run: ./db/verify-sqlc.ps1
+      - name: Verify delivery configuration and secrets
+        shell: pwsh
+        run: ./scripts/verify-delivery.ps1
+
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: backend_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d backend_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/backend_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - name: Migration up/down/up and seed idempotency
+        run: go test -count=1 ./db/migrations
+
+  docker-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify delivery configuration
+        shell: pwsh
+        run: ./scripts/verify-delivery.ps1
+      - name: Build and smoke test Compose stack
+        shell: pwsh
+        run: ./scripts/docker-smoke.ps1
