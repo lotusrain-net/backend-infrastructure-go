@@ -12,6 +12,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countFilteredAuditLogs = `-- name: CountFilteredAuditLogs :one
+SELECT count(*) FROM audit_logs
+WHERE ($1::text IS NULL OR request_id = $1)
+  AND ($2::uuid IS NULL OR actor_id = $2)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::text IS NULL OR result = $4)
+  AND ($5::text IS NULL OR resource_type = $5)
+  AND ($6::text IS NULL OR resource_id = $6)
+  AND ($7::timestamptz IS NULL OR created_at >= $7)
+  AND ($8::timestamptz IS NULL OR created_at <= $8)
+`
+
+type CountFilteredAuditLogsParams struct {
+	RequestID    pgtype.Text        `json:"request_id"`
+	ActorID      pgtype.UUID        `json:"actor_id"`
+	Action       pgtype.Text        `json:"action"`
+	Result       pgtype.Text        `json:"result"`
+	ResourceType pgtype.Text        `json:"resource_type"`
+	ResourceID   pgtype.Text        `json:"resource_id"`
+	FromTime     pgtype.Timestamptz `json:"from_time"`
+	ToTime       pgtype.Timestamptz `json:"to_time"`
+}
+
+func (q *Queries) CountFilteredAuditLogs(ctx context.Context, arg CountFilteredAuditLogsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countFilteredAuditLogs,
+		arg.RequestID,
+		arg.ActorID,
+		arg.Action,
+		arg.Result,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.FromTime,
+		arg.ToTime,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAuditLog = `-- name: CreateAuditLog :one
 INSERT INTO audit_logs (
     request_id, actor_id, action, result, resource_type, resource_id,
@@ -61,19 +100,46 @@ func (q *Queries) CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) 
 	return i, err
 }
 
-const listAuditLogs = `-- name: ListAuditLogs :many
+const listFilteredAuditLogs = `-- name: ListFilteredAuditLogs :many
 SELECT id, request_id, actor_id, action, result, resource_type, resource_id, ip_address, user_agent, metadata, created_at FROM audit_logs
+WHERE ($1::text IS NULL OR request_id = $1)
+  AND ($2::uuid IS NULL OR actor_id = $2)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::text IS NULL OR result = $4)
+  AND ($5::text IS NULL OR resource_type = $5)
+  AND ($6::text IS NULL OR resource_id = $6)
+  AND ($7::timestamptz IS NULL OR created_at >= $7)
+  AND ($8::timestamptz IS NULL OR created_at <= $8)
 ORDER BY created_at DESC, id DESC
-LIMIT $1 OFFSET $2
+LIMIT $10 OFFSET $9
 `
 
-type ListAuditLogsParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+type ListFilteredAuditLogsParams struct {
+	RequestID    pgtype.Text        `json:"request_id"`
+	ActorID      pgtype.UUID        `json:"actor_id"`
+	Action       pgtype.Text        `json:"action"`
+	Result       pgtype.Text        `json:"result"`
+	ResourceType pgtype.Text        `json:"resource_type"`
+	ResourceID   pgtype.Text        `json:"resource_id"`
+	FromTime     pgtype.Timestamptz `json:"from_time"`
+	ToTime       pgtype.Timestamptz `json:"to_time"`
+	Offset       int32              `json:"offset"`
+	Limit        int32              `json:"limit"`
 }
 
-func (q *Queries) ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error) {
-	rows, err := q.db.Query(ctx, listAuditLogs, arg.Limit, arg.Offset)
+func (q *Queries) ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, listFilteredAuditLogs,
+		arg.RequestID,
+		arg.ActorID,
+		arg.Action,
+		arg.Result,
+		arg.ResourceType,
+		arg.ResourceID,
+		arg.FromTime,
+		arg.ToTime,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	AssignUserRole(ctx context.Context, arg AssignUserRoleParams) error
+	CountFilteredAuditLogs(ctx context.Context, arg CountFilteredAuditLogsParams) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
 	CreateTaskDefinition(ctx context.Context, arg CreateTaskDefinitionParams) (TaskDefinition, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
@@ -23,8 +24,8 @@ type Querier interface {
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 	GrantRolePermission(ctx context.Context, arg GrantRolePermissionParams) error
-	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListEnabledTaskSchedules(ctx context.Context) ([]TaskSchedule, error)
+	ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)
 	ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]string, error)

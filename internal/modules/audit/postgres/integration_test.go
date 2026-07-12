@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -24,7 +25,7 @@ func TestIntegrationCreateAndListAuditLog(t *testing.T) {
 	t.Cleanup(func() { _ = connection.Close(ctx) })
 	if _, err := connection.Exec(ctx, `
 		CREATE TEMP TABLE audit_logs (
-			id UUID PRIMARY KEY DEFAULT '00000000-0000-0000-0000-000000000001',
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			request_id TEXT NOT NULL,
 			actor_id UUID,
 			action TEXT NOT NULL,
@@ -54,5 +55,47 @@ func TestIntegrationCreateAndListAuditLog(t *testing.T) {
 	}
 	if created.ID == "" || total != 1 || len(items) != 1 || items[0].Metadata["source"] != "integration" {
 		t.Fatalf("created=%#v items=%#v total=%d", created, items, total)
+	}
+
+	verifyCombinedServerSideFilters(t, connection, repository)
+}
+
+func verifyCombinedServerSideFilters(t *testing.T, connection *pgx.Conn, repository *postgres.Repository) {
+	t.Helper()
+	ctx := t.Context()
+	actor := "8d3f4a0e-dab4-4af7-bd44-dbf3213c5b66"
+	otherActor := "2a7cbbae-b086-4714-aa6d-7eb08e3eb59d"
+	from := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)
+	to := from.Add(4 * time.Hour)
+	insert := func(requestID, actorID, action, result, resourceType, resourceID string, createdAt time.Time) {
+		t.Helper()
+		if _, err := connection.Exec(ctx, `
+			INSERT INTO audit_logs (request_id, actor_id, action, result, resource_type, resource_id, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb, $7)
+		`, requestID, actorID, action, result, resourceType, resourceID, createdAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	insert("combined", actor, "task.create", "failure", "task", "task-3", from.Add(3*time.Hour))
+	insert("combined", actor, "task.create", "failure", "task", "task-3", from.Add(2*time.Hour))
+	insert("wrong-request", actor, "task.create", "failure", "task", "task-3", from.Add(2*time.Hour))
+	insert("combined", otherActor, "task.create", "failure", "task", "task-3", from.Add(2*time.Hour))
+	insert("combined", actor, "auth.login", "failure", "task", "task-3", from.Add(2*time.Hour))
+	insert("combined", actor, "task.create", "success", "task", "task-3", from.Add(2*time.Hour))
+	insert("combined", actor, "task.create", "failure", "session", "task-3", from.Add(2*time.Hour))
+	insert("combined", actor, "task.create", "failure", "task", "task-other", from.Add(2*time.Hour))
+	insert("combined", actor, "task.create", "failure", "task", "task-3", from.Add(-time.Minute))
+	insert("combined", actor, "task.create", "failure", "task", "task-3", to.Add(time.Minute))
+
+	items, total, err := repository.List(ctx, audit.Filter{
+		RequestID: "combined", ActorID: actor, Action: "task.create", Result: audit.ResultFailure,
+		ResourceType: "task", ResourceID: "task-3", From: &from, To: &to,
+	}, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 1 || !items[0].CreatedAt.Equal(from.Add(2*time.Hour)) {
+		t.Fatalf("combined filter items=%#v total=%d", items, total)
 	}
 }

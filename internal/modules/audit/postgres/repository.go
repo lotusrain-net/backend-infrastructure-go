@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/netip"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -13,26 +13,17 @@ import (
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 )
 
-const defaultBatchSize = 500
+const maxDatabaseInt32 = 1<<31 - 1
 
 type Queries interface {
 	CreateAuditLog(context.Context, dbgen.CreateAuditLogParams) (dbgen.AuditLog, error)
-	ListAuditLogs(context.Context, dbgen.ListAuditLogsParams) ([]dbgen.AuditLog, error)
+	ListFilteredAuditLogs(context.Context, dbgen.ListFilteredAuditLogsParams) ([]dbgen.AuditLog, error)
+	CountFilteredAuditLogs(context.Context, dbgen.CountFilteredAuditLogsParams) (int64, error)
 }
 
-type Repository struct {
-	queries   Queries
-	batchSize int
-}
+type Repository struct{ queries Queries }
 
-func New(queries Queries) *Repository { return NewWithBatchSize(queries, defaultBatchSize) }
-
-func NewWithBatchSize(queries Queries, batchSize int) *Repository {
-	if batchSize < 1 {
-		batchSize = defaultBatchSize
-	}
-	return &Repository{queries: queries, batchSize: batchSize}
-}
+func New(queries Queries) *Repository { return &Repository{queries: queries} }
 
 func (repository *Repository) Create(ctx context.Context, event audit.NewEvent) (audit.Event, error) {
 	if repository == nil || repository.queries == nil {
@@ -65,68 +56,62 @@ func (repository *Repository) List(ctx context.Context, filter audit.Filter, lim
 	if repository == nil || repository.queries == nil {
 		return nil, 0, fmt.Errorf("audit queries are required")
 	}
-	if limit < 1 || offset < 0 {
+	if limit < 1 || offset < 0 || limit > maxDatabaseInt32 || offset > maxDatabaseInt32 {
 		return nil, 0, fmt.Errorf("limit must be positive and offset non-negative")
 	}
-
-	matched := make([]audit.Event, 0, limit)
-	var total int64
-	for scanOffset := 0; ; scanOffset += repository.batchSize {
-		if scanOffset > math.MaxInt32 {
-			return nil, 0, fmt.Errorf("audit scan offset exceeds database limit")
-		}
-		rows, err := repository.queries.ListAuditLogs(ctx, dbgen.ListAuditLogsParams{
-			Limit: int32(repository.batchSize), Offset: int32(scanOffset),
-		})
-		if err != nil {
-			return nil, 0, fmt.Errorf("list audit logs: %w", err)
-		}
-		for _, row := range rows {
-			event, err := toEvent(row)
-			if err != nil {
-				return nil, 0, err
-			}
-			if !matches(event, filter) {
-				continue
-			}
-			if total >= int64(offset) && len(matched) < limit {
-				matched = append(matched, event)
-			}
-			total++
-		}
-		if len(rows) < repository.batchSize {
-			break
-		}
+	params, err := newFilterParams(filter)
+	if err != nil {
+		return nil, 0, err
 	}
-	return matched, total, nil
+	rows, err := repository.queries.ListFilteredAuditLogs(ctx, dbgen.ListFilteredAuditLogsParams{
+		RequestID: params.requestID, ActorID: params.actorID, Action: params.action, Result: params.result,
+		ResourceType: params.resourceType, ResourceID: params.resourceID, FromTime: params.fromTime, ToTime: params.toTime,
+		Limit: int32(limit), Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list filtered audit logs: %w", err)
+	}
+	items := make([]audit.Event, 0, len(rows))
+	for _, row := range rows {
+		event, err := toEvent(row)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, event)
+	}
+	total, err := repository.queries.CountFilteredAuditLogs(ctx, dbgen.CountFilteredAuditLogsParams{
+		RequestID: params.requestID, ActorID: params.actorID, Action: params.action, Result: params.result,
+		ResourceType: params.resourceType, ResourceID: params.resourceID, FromTime: params.fromTime, ToTime: params.toTime,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("count filtered audit logs: %w", err)
+	}
+	return items, total, nil
 }
 
-func matches(event audit.Event, filter audit.Filter) bool {
-	if filter.RequestID != "" && event.RequestID != filter.RequestID {
-		return false
+type filterParams struct {
+	requestID    pgtype.Text
+	actorID      pgtype.UUID
+	action       pgtype.Text
+	result       pgtype.Text
+	resourceType pgtype.Text
+	resourceID   pgtype.Text
+	fromTime     pgtype.Timestamptz
+	toTime       pgtype.Timestamptz
+}
+
+func newFilterParams(filter audit.Filter) (filterParams, error) {
+	var actorID pgtype.UUID
+	if filter.ActorID != "" {
+		if err := actorID.Scan(filter.ActorID); err != nil {
+			return filterParams{}, fmt.Errorf("parse audit actor filter: %w", err)
+		}
 	}
-	if filter.ActorID != "" && (event.ActorID == nil || *event.ActorID != filter.ActorID) {
-		return false
-	}
-	if filter.Action != "" && event.Action != filter.Action {
-		return false
-	}
-	if filter.Result != "" && event.Result != filter.Result {
-		return false
-	}
-	if filter.ResourceType != "" && event.ResourceType != filter.ResourceType {
-		return false
-	}
-	if filter.ResourceID != "" && event.ResourceID != filter.ResourceID {
-		return false
-	}
-	if filter.From != nil && event.CreatedAt.Before(*filter.From) {
-		return false
-	}
-	if filter.To != nil && event.CreatedAt.After(*filter.To) {
-		return false
-	}
-	return true
+	return filterParams{
+		requestID: optionalText(filter.RequestID), actorID: actorID, action: optionalText(filter.Action),
+		result: optionalText(string(filter.Result)), resourceType: optionalText(filter.ResourceType), resourceID: optionalText(filter.ResourceID),
+		fromTime: optionalTime(filter.From), toTime: optionalTime(filter.To),
+	}, nil
 }
 
 func toEvent(row dbgen.AuditLog) (audit.Event, error) {
@@ -169,6 +154,13 @@ func optionalUUID(value *string) (pgtype.UUID, error) {
 
 func optionalText(value string) pgtype.Text {
 	return pgtype.Text{String: value, Valid: value != ""}
+}
+
+func optionalTime(value *time.Time) pgtype.Timestamptz {
+	if value == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *value, Valid: true}
 }
 
 func cloneAddress(address *netip.Addr) *netip.Addr {
