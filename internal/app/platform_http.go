@@ -51,7 +51,12 @@ type platformHandler struct{ deps PlatformRoutes }
 func (h platformHandler) auditLogs(w http.ResponseWriter, r *http.Request) {
 	page := queryInt(r, "page", 1)
 	size := queryInt(r, "size", 20)
-	result, err := h.deps.Audits.List(r.Context(), audit.Query{Filter: audit.Filter{Action: r.URL.Query().Get("action"), ResourceType: r.URL.Query().Get("resource_type")}, Page: page, Size: size})
+	query := r.URL.Query()
+	result, err := h.deps.Audits.List(r.Context(), audit.Query{Filter: audit.Filter{
+		RequestID: query.Get("request_id"), ActorID: query.Get("actor_id"), Action: query.Get("action"),
+		Result: audit.Result(query.Get("result")), ResourceType: query.Get("resource_type"), ResourceID: query.Get("resource_id"),
+		From: queryTime(query.Get("from")), To: queryTime(query.Get("to")),
+	}, Page: page, Size: size})
 	if err != nil {
 		response.WriteError(w, err)
 		return
@@ -90,7 +95,7 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, err)
 		return
 	}
-	response.Write(w, http.StatusCreated, execution)
+	response.Write(w, http.StatusAccepted, execution)
 }
 func (h platformHandler) getExecution(w http.ResponseWriter, r *http.Request) {
 	execution, err := h.deps.Executions.GetExecution(r.Context(), chi.URLParam(r, "executionID"))
@@ -116,4 +121,14 @@ func queryInt(r *http.Request, name string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+func queryTime(value string) *time.Time {
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
 }

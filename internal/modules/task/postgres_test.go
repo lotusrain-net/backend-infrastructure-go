@@ -32,11 +32,13 @@ func (queries *definitionQueriesStub) CreateTaskDefinition(_ context.Context, pa
 
 type executionQueriesStub struct {
 	createErr    error
+	createParams dbgen.CreateTaskExecutionParams
 	updateParams dbgen.UpdateTaskExecutionStatusParams
 }
 
-func (queries *executionQueriesStub) CreateTaskExecution(context.Context, dbgen.CreateTaskExecutionParams) (dbgen.TaskExecution, error) {
-	return dbgen.TaskExecution{}, queries.createErr
+func (queries *executionQueriesStub) CreateTaskExecution(_ context.Context, params dbgen.CreateTaskExecutionParams) (dbgen.TaskExecution, error) {
+	queries.createParams = params
+	return dbgen.TaskExecution{ID: testUUID, DefinitionID: params.DefinitionID, TaskType: params.TaskType, Status: string(StatusQueued)}, queries.createErr
 }
 
 func (queries *executionQueriesStub) GetTaskExecution(context.Context, pgtype.UUID) (dbgen.TaskExecution, error) {
@@ -86,6 +88,17 @@ func TestPostgresExecutionStoreMapsUniqueViolationToDuplicate(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDuplicateSubmission) {
 		t.Fatalf("CreateExecution() error = %v, want duplicate submission", err)
+	}
+}
+
+func TestPostgresExecutionStoreAllowsSubmissionWithoutDefinition(t *testing.T) {
+	queries := &executionQueriesStub{}
+	store := NewPostgresExecutionStore(queries)
+	if _, err := store.CreateExecution(context.Background(), NewExecution{TaskType: SystemTestTaskType, Payload: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if queries.createParams.DefinitionID.Valid {
+		t.Fatalf("definition_id=%+v, want SQL NULL", queries.createParams.DefinitionID)
 	}
 }
 
