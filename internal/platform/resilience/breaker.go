@@ -45,6 +45,7 @@ type CircuitBreaker struct {
 	openTimeout      time.Duration
 	now              func() time.Time
 	state            BreakerState
+	generation       uint64
 	failures         uint32
 	openedAt         time.Time
 	probeInFlight    bool
@@ -83,39 +84,48 @@ func (breaker *CircuitBreaker) Execute(ctx context.Context, operation func(conte
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := breaker.acquire(); err != nil {
+	generation, err := breaker.acquire()
+	if err != nil {
 		return err
 	}
 
-	err := operation(ctx)
-	breaker.record(ctx, err)
-	return err
+	operationErr := operation(ctx)
+	breaker.record(ctx, generation, operationErr)
+	return operationErr
 }
 
-func (breaker *CircuitBreaker) acquire() error {
+func (breaker *CircuitBreaker) acquire() (uint64, error) {
 	breaker.mu.Lock()
 	defer breaker.mu.Unlock()
 	breaker.advanceState()
 	if breaker.state == StateOpen {
-		return ErrCircuitOpen
+		return 0, ErrCircuitOpen
 	}
 	if breaker.state == StateHalfOpen {
 		if breaker.probeInFlight {
-			return ErrCircuitOpen
+			return 0, ErrCircuitOpen
 		}
 		breaker.probeInFlight = true
 	}
-	return nil
+	return breaker.generation, nil
 }
 
-func (breaker *CircuitBreaker) record(ctx context.Context, err error) {
+func (breaker *CircuitBreaker) record(ctx context.Context, generation uint64, err error) {
 	breaker.mu.Lock()
 	defer breaker.mu.Unlock()
 
+	if generation != breaker.generation {
+		return
+	}
+	callerCancelled := ctx.Err() != nil && errors.Is(err, ctx.Err())
 	if breaker.state == StateHalfOpen {
 		breaker.probeInFlight = false
+		if callerCancelled {
+			return
+		}
 		if err == nil {
 			breaker.state = StateClosed
+			breaker.generation++
 			breaker.failures = 0
 			return
 		}
@@ -126,7 +136,7 @@ func (breaker *CircuitBreaker) record(ctx context.Context, err error) {
 		breaker.failures = 0
 		return
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+	if callerCancelled {
 		return
 	}
 	breaker.failures++
@@ -138,12 +148,14 @@ func (breaker *CircuitBreaker) record(ctx context.Context, err error) {
 func (breaker *CircuitBreaker) advanceState() {
 	if breaker.state == StateOpen && breaker.now().Sub(breaker.openedAt) >= breaker.openTimeout {
 		breaker.state = StateHalfOpen
+		breaker.generation++
 		breaker.probeInFlight = false
 	}
 }
 
 func (breaker *CircuitBreaker) open() {
 	breaker.state = StateOpen
+	breaker.generation++
 	breaker.failures = 0
 	breaker.openedAt = breaker.now()
 	breaker.probeInFlight = false

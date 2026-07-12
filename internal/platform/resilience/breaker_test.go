@@ -103,3 +103,69 @@ func TestCircuitBreakerDoesNotCountCallerCancellation(t *testing.T) {
 		t.Fatalf("State() = %s, want closed", breaker.State())
 	}
 }
+
+func TestCircuitBreakerIgnoresFailureFromEarlierGeneration(t *testing.T) {
+	clock := &manualClock{now: time.Unix(100, 0)}
+	breaker, _ := NewCircuitBreaker(1, time.Minute, WithClock(clock.Now))
+	entered := make(chan string, 2)
+	releaseFirst := make(chan struct{})
+	releaseStale := make(chan struct{})
+	firstResult := make(chan error, 1)
+	staleResult := make(chan error, 1)
+
+	go func() {
+		firstResult <- breaker.Execute(context.Background(), func(context.Context) error {
+			entered <- "first"
+			<-releaseFirst
+			return errors.New("first failure")
+		})
+	}()
+	go func() {
+		staleResult <- breaker.Execute(context.Background(), func(context.Context) error {
+			entered <- "stale"
+			<-releaseStale
+			return errors.New("stale failure")
+		})
+	}()
+
+	<-entered
+	<-entered
+	close(releaseFirst)
+	<-firstResult
+	if breaker.State() != StateOpen {
+		t.Fatalf("State() = %s after first failure, want open", breaker.State())
+	}
+
+	clock.now = clock.now.Add(59 * time.Second)
+	close(releaseStale)
+	<-staleResult
+	clock.now = clock.now.Add(time.Second)
+	if breaker.State() != StateHalfOpen {
+		t.Fatalf("State() = %s at original reset deadline, want half-open", breaker.State())
+	}
+}
+
+func TestCircuitBreakerReleasesHalfOpenProbeAfterCallerCancellation(t *testing.T) {
+	clock := &manualClock{now: time.Unix(100, 0)}
+	breaker, _ := NewCircuitBreaker(1, time.Minute, WithClock(clock.Now))
+	_ = breaker.Execute(context.Background(), func(context.Context) error { return errors.New("failed") })
+	clock.now = clock.now.Add(time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := breaker.Execute(ctx, func(context.Context) error {
+		cancel()
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Execute() error = %v, want context canceled", err)
+	}
+	if breaker.State() != StateHalfOpen {
+		t.Fatalf("State() = %s, want half-open", breaker.State())
+	}
+	if err := breaker.Execute(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("second half-open probe error = %v", err)
+	}
+	if breaker.State() != StateClosed {
+		t.Fatalf("State() = %s, want closed", breaker.State())
+	}
+}
