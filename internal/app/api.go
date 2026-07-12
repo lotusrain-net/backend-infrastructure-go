@@ -11,11 +11,14 @@ import (
 	"backend-infrastructure-go/internal/modules/audit"
 	auditpostgres "backend-infrastructure-go/internal/modules/audit/postgres"
 	"backend-infrastructure-go/internal/modules/iam"
+	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"backend-infrastructure-go/internal/platform/database"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"backend-infrastructure-go/internal/platform/httpserver"
 	"backend-infrastructure-go/internal/platform/observability"
+	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	"github.com/go-chi/chi/v5"
+	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -68,6 +71,9 @@ func (runtime *apiRuntime) Shutdown(ctx context.Context) error {
 }
 
 func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*apiRuntime, error) {
+	if err := cfg.ValidateAPI(); err != nil {
+		return nil, err
+	}
 	pool, err := database.Open(ctx, database.Config{URL: cfg.DatabaseURL, MinConns: cfg.DatabaseMinConns, MaxConns: cfg.DatabaseMaxConns, HealthCheckPeriod: 30 * time.Second})
 	if err != nil {
 		return nil, err
@@ -79,6 +85,11 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 		return nil, err
 	}
 	queries := dbgen.New(pool)
+	if err := BootstrapAdmin(ctx, queries, iam.NewPasswordHasher(iam.DefaultArgon2Params()), AdminBootstrap{Email: cfg.AdminEmail, Username: cfg.AdminUsername, Password: cfg.AdminPassword}); err != nil {
+		pool.Close()
+		_ = redisClient.Close()
+		return nil, err
+	}
 	iamRepo := iam.NewSQLCRepository(queries)
 	jwt, err := iam.NewJWTManager([]byte(cfg.JWTSecret), cfg.JWTIssuer, cfg.AccessTokenTTL)
 	if err != nil {
@@ -90,11 +101,16 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 	iamService := iam.NewService(iamRepo, iamRepo, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, refresh)
 	auditService := audit.NewService(auditpostgres.New(queries))
 	metrics := observability.New(observability.Config{Namespace: "backend", KnownDependencies: []string{"postgres", "redis"}, KnownTaskTypes: []string{"system.test"}})
+	auditRecorder := audit.NewBestEffortRecorder(auditService, logger, metrics)
+	executionStore := taskmodule.NewPostgresExecutionStore(queries)
+	queueClient := asynq.NewClientFromRedisClient(redisClient)
+	submissions := taskmodule.NewSubmissionService(executionStore, queueplatform.NewAsynqPublisher(queueClient, cfg.AsynqQueue), newUUID)
 	readiness := dependencyReadiness{pool: pool, redis: redisClient}
 	limiter := httpserver.NewRedisRateLimiter(redisClient, "ratelimit:"+cfg.Environment, time.Now)
 	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Critical: func(r *http.Request) bool { return stringsHasAuthPrefix(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
-		audited := newAuditedIAM(iamService, audit.NewBestEffortRecorder(auditService, logger, metrics))
+		audited := newAuditedIAM(iamService, auditRecorder)
 		iam.RegisterRoutes(router, audited, jwt, iam.HTTPConfig{SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})
+		RegisterPlatformRoutes(router, PlatformRoutes{IAM: audited, JWT: jwt, Audits: auditService, Tasks: submissions, Executions: executionStore, Recorder: auditRecorder})
 	}})
 	if err != nil {
 		pool.Close()

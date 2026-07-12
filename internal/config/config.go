@@ -36,6 +36,9 @@ type Config struct {
 	AsynqConcurrency         int
 	SchedulerRefreshInterval time.Duration
 	MigrationsSource         string
+	AdminEmail               string
+	AdminUsername            string
+	AdminPassword            string
 }
 
 func Load() (Config, error) {
@@ -117,12 +120,28 @@ func Load() (Config, error) {
 		AsynqConcurrency:         asynqConcurrency,
 		SchedulerRefreshInterval: schedulerRefreshInterval,
 		MigrationsSource:         value("MIGRATIONS_SOURCE", "file://db/migrations"),
+		AdminEmail:               strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))),
+		AdminUsername:            strings.TrimSpace(os.Getenv("ADMIN_USERNAME")),
+		AdminPassword:            os.Getenv("ADMIN_PASSWORD"),
 	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func (c Config) ValidateAPI() error {
+	if !strings.Contains(c.AdminEmail, "@") {
+		return errors.New("ADMIN_EMAIL is required and must be an email")
+	}
+	if c.AdminUsername == "" {
+		return errors.New("ADMIN_USERNAME is required")
+	}
+	if len(c.AdminPassword) < 12 {
+		return errors.New("ADMIN_PASSWORD must contain at least 12 bytes")
+	}
+	return nil
 }
 
 func (c Config) Validate() error {

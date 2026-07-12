@@ -170,6 +170,27 @@ func TestLoadRejectsMalformedRuntimeWiringSettings(t *testing.T) {
 	}
 }
 
+func TestValidateAPIRequiresStrongAdminBootstrapCredentials(t *testing.T) {
+	setValidEnvironment(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAPI(); err == nil {
+		t.Fatal("expected missing admin credentials error")
+	}
+	cfg.AdminEmail = "admin@example.com"
+	cfg.AdminUsername = "admin"
+	cfg.AdminPassword = "short"
+	if err := cfg.ValidateAPI(); err == nil {
+		t.Fatal("expected weak admin password error")
+	}
+	cfg.AdminPassword = "long-admin-password"
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func unsetEnvironment(t *testing.T, name string) {
 	t.Helper()
 	value, existed := os.LookupEnv(name)
