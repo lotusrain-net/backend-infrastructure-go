@@ -66,6 +66,23 @@ func TestSubmitTaskMapsMissingDefinitionToNotFound(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestSubmitTaskMapsDomainValidationFailureToUnprocessableEntity(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{submitErr: fmt.Errorf("validate submission: %w", taskmodule.ErrInvalidSubmission)}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"task_type":"system.test","payload":{}}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
 func (s *taskAPIStub) GetExecution(context.Context, string) (taskmodule.Execution, error) {
 	if s.getErr != nil {
 		return taskmodule.Execution{}, s.getErr
@@ -179,6 +196,27 @@ func TestSubmitTaskPreservesExplicitZeroRetries(t *testing.T) {
 	}
 }
 
+func TestSubmitTaskUsesInjectedTaskCatalog(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{}
+	catalog, err := taskmodule.NewTaskCatalog(taskmodule.TaskRegistration{TaskType: "report.generate", Handler: taskmodule.SystemTestHandler{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks, TaskCatalog: catalog})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/task-executions", strings.NewReader(`{"task_type":"report.generate","payload":{}}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted || tasks.submission.TaskType != "report.generate" {
+		t.Fatalf("status=%d body=%s submission=%+v", rec.Code, rec.Body.String(), tasks.submission)
+	}
+}
+
 func TestSubmitTaskRejectsRequestsOutsideDocumentedContract(t *testing.T) {
 	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
 	token, _ := jwt.Issue("user-1")
@@ -191,10 +229,15 @@ func TestSubmitTaskRejectsRequestsOutsideDocumentedContract(t *testing.T) {
 		`{"task_type":"system.test","payload":{},"definition_id":""}`,
 		`{"task_type":"system.test","payload":{},"idempotency_key":""}`,
 		`{"task_type":"system.test","payload":{},"max_retries":-1}`,
+		`{"task_type":"system.test","payload":{},"max_retries":26}`,
 		`{"task_type":"system.test","payload":{},"max_retries":null}`,
 		`{"task_type":"system.test","payload":{},"timeout_seconds":0}`,
+		`{"task_type":"system.test","payload":{},"timeout_seconds":86401}`,
+		`{"task_type":"system.test","payload":{},"timeout_seconds":9223372036854775807}`,
 		`{"task_type":"system.test","payload":{},"unique_for_seconds":-1}`,
+		`{"task_type":"system.test","payload":{},"unique_for_seconds":604801}`,
 		`{"task_type":"system.test","payload":{},"process_after_seconds":-1}`,
+		`{"task_type":"system.test","payload":{},"process_after_seconds":2592001}`,
 		`{"task_type":"system.test","payload":{}} {}`,
 	}
 	for _, body := range tests {

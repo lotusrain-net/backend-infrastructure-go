@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"errors"
 	"strings"
 )
 
@@ -26,7 +27,16 @@ func (s *Service) Login(ctx context.Context, email, password string) (TokenPair,
 		passwordHash = user.PasswordHash
 	}
 	ok, verifyErr := s.passwords.Verify(password, passwordHash)
-	if err != nil || verifyErr != nil || !ok {
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return TokenPair{}, ErrInvalidCredentials
+		}
+		return TokenPair{}, err
+	}
+	if verifyErr != nil {
+		return TokenPair{}, verifyErr
+	}
+	if !ok {
 		return TokenPair{}, ErrInvalidCredentials
 	}
 	if !user.Active {
@@ -38,10 +48,16 @@ func (s *Service) Login(ctx context.Context, email, password string) (TokenPair,
 func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
 	userID, err := s.refresh.Lookup(ctx, raw)
 	if err != nil {
-		return TokenPair{}, ErrInvalidRefreshToken
+		return TokenPair{}, err
 	}
 	user, err := s.users.FindByID(ctx, userID)
-	if err != nil || !user.Active {
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return TokenPair{}, ErrInvalidRefreshToken
+		}
+		return TokenPair{}, err
+	}
+	if !user.Active {
 		return TokenPair{}, ErrInvalidRefreshToken
 	}
 	access, err := s.jwt.Issue(userID)
@@ -50,7 +66,7 @@ func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
 	}
 	refresh, err := s.refresh.Rotate(ctx, raw, userID)
 	if err != nil {
-		return TokenPair{}, ErrInvalidRefreshToken
+		return TokenPair{}, err
 	}
 	return s.tokenPair(access, refresh), nil
 }
@@ -63,7 +79,10 @@ func (s *Service) RevokeAll(ctx context.Context, userID string) error {
 func (s *Service) CurrentUser(ctx context.Context, userID string) (User, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
-		return User{}, ErrNotFound
+		if errors.Is(err, ErrNotFound) {
+			return User{}, ErrNotFound
+		}
+		return User{}, err
 	}
 	if !user.Active {
 		return User{}, ErrInactiveUser

@@ -57,13 +57,3 @@ func scanModuleImports(t *testing.T) []moduleImport {
 	}
 	return dependencies
 }
-
-func isAdapterFile(path string) bool {
-	normalized := filepath.ToSlash(path)
-	if strings.Contains(normalized, "/postgres/") ||
-		strings.Contains(normalized, "/adapter/") ||
-		strings.Contains(normalized, "/adapters/") {
-		return true
-	}
-	return false
-}

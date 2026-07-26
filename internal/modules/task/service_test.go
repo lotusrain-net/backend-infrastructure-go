@@ -19,6 +19,9 @@ type executionStoreStub struct {
 	execution Execution
 	createErr error
 	updates   []ExecutionUpdate
+	outbox    []PendingPublish
+	published []string
+	claimErr  error
 }
 
 func (store *executionStoreStub) CreateExecution(context.Context, NewExecution) (Execution, error) {
@@ -32,10 +35,42 @@ func (store *executionStoreStub) GetExecution(context.Context, string) (Executio
 	return store.execution, nil
 }
 
+func (store *executionStoreStub) ClaimExecution(_ context.Context, id string, attempt int, startedAt time.Time) error {
+	if store.claimErr != nil {
+		return store.claimErr
+	}
+	store.updates = append(store.updates, ExecutionUpdate{
+		ID:              id,
+		Status:          StatusRunning,
+		StartedAt:       &startedAt,
+		Attempt:         attempt,
+		ExpectedStatus:  store.execution.Status,
+		ExpectedAttempt: store.execution.Attempt,
+	})
+	store.execution.Status = StatusRunning
+	store.execution.Attempt = attempt
+	store.execution.StartedAt = &startedAt
+	return nil
+}
+
 func (store *executionStoreStub) UpdateExecution(_ context.Context, update ExecutionUpdate) error {
 	store.updates = append(store.updates, update)
 	store.execution.Status = update.Status
 	store.execution.Attempt = update.Attempt
+	return nil
+}
+
+func (store *executionStoreStub) CreateExecutionWithPendingPublish(_ context.Context, execution NewExecution, message Message, options PublishOptions) (Execution, error) {
+	store.outbox = append(store.outbox, PendingPublish{Message: message, Options: options})
+	return store.CreateExecution(context.Background(), execution)
+}
+
+func (store *executionStoreStub) ListPendingPublishes(context.Context, int) ([]PendingPublish, error) {
+	return append([]PendingPublish(nil), store.outbox...), nil
+}
+
+func (store *executionStoreStub) MarkPublishSucceeded(_ context.Context, queueID string) error {
+	store.published = append(store.published, queueID)
 	return nil
 }
 
@@ -51,6 +86,34 @@ func (publisher *publisherStub) Publish(_ context.Context, message Message, opti
 	publisher.message = message
 	publisher.options = options
 	return publisher.err
+}
+
+type directExecutionStoreStub struct {
+	execution Execution
+	createErr error
+	updates   []ExecutionUpdate
+}
+
+func (store *directExecutionStoreStub) CreateExecution(context.Context, NewExecution) (Execution, error) {
+	if store.createErr != nil {
+		return Execution{}, store.createErr
+	}
+	return store.execution, nil
+}
+
+func (store *directExecutionStoreStub) GetExecution(context.Context, string) (Execution, error) {
+	return store.execution, nil
+}
+
+func (*directExecutionStoreStub) ClaimExecution(context.Context, string, int, time.Time) error {
+	return nil
+}
+
+func (store *directExecutionStoreStub) UpdateExecution(_ context.Context, update ExecutionUpdate) error {
+	store.updates = append(store.updates, update)
+	store.execution.Status = update.Status
+	store.execution.Attempt = update.Attempt
+	return nil
 }
 
 func TestSubmissionServiceRejectsDuplicateBeforePublishing(t *testing.T) {
@@ -78,7 +141,7 @@ func TestSubmissionServiceRejectsDuplicateBeforePublishing(t *testing.T) {
 func TestSubmissionServiceMarksExecutionFailedWhenPublishingFails(t *testing.T) {
 	t.Parallel()
 
-	store := &executionStoreStub{execution: Execution{ID: "execution-1", Status: StatusQueued}}
+	store := &directExecutionStoreStub{execution: Execution{ID: "execution-1", Status: StatusQueued}}
 	wantErr := errors.New("redis unavailable")
 	publisher := &publisherStub{err: wantErr}
 	service := NewSubmissionService(store, publisher, func() string { return "queue-1" })
@@ -94,6 +157,76 @@ func TestSubmissionServiceMarksExecutionFailedWhenPublishingFails(t *testing.T) 
 	}
 	if update := store.updates[0]; update.Status != StatusFailed || update.ErrorSummary != wantErr.Error() {
 		t.Fatalf("failure update = %+v", update)
+	}
+}
+
+func TestSubmissionServicePersistsOutboxWhenPublishingFails(t *testing.T) {
+	t.Parallel()
+
+	store := &executionStoreStub{execution: Execution{ID: "execution-1", Status: StatusQueued}}
+	publisher := &publisherStub{err: errors.New("redis unavailable")}
+	service := NewSubmissionService(store, publisher, func() string { return "queue-1" })
+
+	execution, err := service.Submit(context.Background(), Submission{
+		TaskType: "report.generate", Payload: json.RawMessage(`{"report_id":7}`), MaxRetries: 3, Timeout: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Submit() error = %v, want nil", err)
+	}
+	if execution.ID != "execution-1" {
+		t.Fatalf("execution = %+v", execution)
+	}
+	if len(store.outbox) != 1 {
+		t.Fatalf("outbox count = %d, want 1", len(store.outbox))
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("updates = %+v, want no status update on publish failure", store.updates)
+	}
+	if len(store.published) != 0 {
+		t.Fatalf("published markers = %v, want none", store.published)
+	}
+}
+
+func TestSubmissionServiceRejectsSubmissionAboveConfiguredLimits(t *testing.T) {
+	t.Parallel()
+
+	store := &executionStoreStub{execution: Execution{ID: "execution-1", Status: StatusQueued}}
+	publisher := &publisherStub{}
+	service := NewSubmissionService(store, publisher, func() string { return "queue-1" })
+
+	_, err := service.Submit(context.Background(), Submission{
+		TaskType:     "report.generate",
+		Payload:      json.RawMessage(`{}`),
+		MaxRetries:   MaxSubmissionRetries + 1,
+		Timeout:      MaxSubmissionTimeout + time.Second,
+		UniqueFor:    MaxSubmissionUniqueFor + time.Second,
+		ProcessAfter: MaxSubmissionProcessAfter + time.Second,
+	})
+	if err == nil {
+		t.Fatal("Submit() error = nil, want validation error")
+	}
+	if store.outbox != nil || publisher.called {
+		t.Fatalf("store/publisher invoked despite invalid submission: outbox=%v called=%v", store.outbox, publisher.called)
+	}
+}
+
+func TestSubmissionServiceRejectsZeroTimeoutAtDomainBoundary(t *testing.T) {
+	t.Parallel()
+
+	store := &executionStoreStub{execution: Execution{ID: "execution-1", Status: StatusQueued}}
+	publisher := &publisherStub{}
+	service := NewSubmissionService(store, publisher, func() string { return "queue-1" })
+
+	_, err := service.Submit(context.Background(), Submission{
+		TaskType: "report.generate",
+		Payload:  json.RawMessage(`{}`),
+		Timeout:  0,
+	})
+	if !errors.Is(err, ErrInvalidSubmission) {
+		t.Fatalf("Submit() error = %v, want invalid submission", err)
+	}
+	if store.outbox != nil || publisher.called {
+		t.Fatalf("store/publisher invoked despite zero timeout: outbox=%v called=%v", store.outbox, publisher.called)
 	}
 }
 
@@ -122,8 +255,37 @@ func TestProcessorSynchronizesRunningAndSucceededStatuses(t *testing.T) {
 	if store.updates[1].Status != StatusSucceeded || store.updates[1].ProcessedRows != 9 {
 		t.Fatalf("second update = %+v, want succeeded with 9 rows", store.updates[1])
 	}
+	if store.updates[1].ExpectedStatus != StatusRunning || store.updates[1].ExpectedAttempt != 2 {
+		t.Fatalf("second update CAS = %+v, want expected running attempt 2", store.updates[1])
+	}
 	if got := observer.statuses; !slices.Equal(got, []Status{StatusRunning, StatusSucceeded}) {
 		t.Fatalf("observed statuses = %v", got)
+	}
+}
+
+func TestProcessorSkipsHandlerWhenClaimConflicts(t *testing.T) {
+	t.Parallel()
+
+	store := &executionStoreStub{
+		execution: Execution{ID: "execution-1", TaskType: "report.generate", Status: StatusRunning, Attempt: 1},
+		claimErr:  ErrExecutionConflict,
+	}
+	registry := NewRegistry()
+	handled := false
+	if err := registry.Register("report.generate", handlerFunc(func(context.Context, json.RawMessage) (Result, error) {
+		handled = true
+		return Result{}, nil
+	})); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	processor := NewProcessor(store, registry, func() time.Time { return time.Unix(200, 0) })
+	err := processor.Process(context.Background(), Message{ExecutionID: "execution-1", TaskType: "report.generate", Payload: json.RawMessage(`{}`)}, 1)
+	if !errors.Is(err, ErrExecutionConflict) {
+		t.Fatalf("Process() error = %v, want ErrExecutionConflict", err)
+	}
+	if handled {
+		t.Fatal("handler ran despite claim conflict")
 	}
 }
 

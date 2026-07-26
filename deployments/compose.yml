@@ -8,6 +8,8 @@ x-app-environment: &app-environment
   DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}?sslmode=disable
   MIGRATIONS_SOURCE: file:///app/migrations
   REDIS_ADDR: redis:6379
+  REDIS_TLS: "false"
+  ALLOW_INSECURE_INTERNAL_TRANSPORT: "true"
   SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-30s}
   SCHEDULER_REFRESH_INTERVAL: ${SCHEDULER_REFRESH_INTERVAL:-30s}
   WORKER_METRICS_ADDR: :9090
@@ -15,13 +17,16 @@ x-app-environment: &app-environment
 x-api-environment: &api-environment
   <<: *app-environment
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-  ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
-  ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
-  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
   COOKIE_SECURE: ${COOKIE_SECURE:-true}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
   CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-false}
   TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
+
+x-admin-seed-environment: &admin-seed-environment
+  <<: *app-environment
+  ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:?ADMIN_USERNAME is required}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
 
 x-app: &app
   image: backend-infrastructure-go:${IMAGE_TAG:-local}
@@ -86,6 +91,19 @@ services:
       postgres:
         condition: service_healthy
 
+  seed-admin:
+    <<: *app
+    entrypoint: ["/app/seed-admin"]
+    environment: *admin-seed-environment
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   api:
     <<: *app
     build:
@@ -104,6 +122,8 @@ services:
       redis:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      seed-admin:
         condition: service_completed_successfully
 
   worker:

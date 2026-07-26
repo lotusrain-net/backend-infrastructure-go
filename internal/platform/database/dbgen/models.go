@@ -76,6 +76,20 @@ type TaskExecution struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type TaskOutboxMessage struct {
+	QueueID             string             `json:"queue_id"`
+	ExecutionID         pgtype.UUID        `json:"execution_id"`
+	TaskType            string             `json:"task_type"`
+	Payload             []byte             `json:"payload"`
+	MaxRetries          int32              `json:"max_retries"`
+	TimeoutSeconds      int32              `json:"timeout_seconds"`
+	UniqueForSeconds    int32              `json:"unique_for_seconds"`
+	ProcessAfterSeconds int32              `json:"process_after_seconds"`
+	PublishedAt         pgtype.Timestamptz `json:"published_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type TaskSchedule struct {
 	ID             pgtype.UUID        `json:"id"`
 	DefinitionID   pgtype.UUID        `json:"definition_id"`

@@ -11,6 +11,7 @@ import (
 
 	"backend-infrastructure-go/internal/modules/audit"
 	"backend-infrastructure-go/internal/modules/iam"
+	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 )
 
 type preserveStub struct{ event audit.NewEvent }
@@ -62,7 +63,7 @@ func TestAuditedIAMRecordsAuthenticatedActorAndRequestMetadata(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/", nil)
 	request.Header.Set("Authorization", "Bearer "+token)
 	request = request.WithContext(audit.WithRequestMetadata(request.Context(), audit.RequestMetadata{IPAddress: &ip, UserAgent: "admin-client/1.0"}))
-	iam.Authenticate(jwt)(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+	iamhttp.Authenticate(jwt)(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
 		if _, err := app.CreateUser(request.Context(), iam.CreateUserInput{}); err != nil {
 			t.Error(err)
 		}

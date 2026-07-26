@@ -2,15 +2,20 @@ package migrations_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"backend-infrastructure-go/internal/modules/iam"
+	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"backend-infrastructure-go/internal/platform/database/iamstore"
+	"backend-infrastructure-go/internal/platform/database/taskstore"
+	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -18,6 +23,15 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type integrationPublisher struct {
+	message taskmodule.Message
+}
+
+func (publisher *integrationPublisher) Publish(_ context.Context, message taskmodule.Message, _ taskmodule.PublishOptions) error {
+	publisher.message = message
+	return nil
+}
 
 func TestMigrationsUpDownUpAndSeedIdempotency(t *testing.T) {
 	databaseURL := os.Getenv("MIGRATION_TEST_DATABASE_URL")
@@ -115,10 +129,12 @@ func exerciseConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	`).Scan(&definitionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.Exec(ctx, `
+	var executionID pgtype.UUID
+	if err := conn.QueryRow(ctx, `
 		INSERT INTO task_executions (task_type, idempotency_key)
 		VALUES ('system.constraint', 'constraint-idempotency')
-	`); err != nil {
+		RETURNING id
+	`).Scan(&executionID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,6 +156,10 @@ func exerciseConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 		{name: "task schedule cron", code: "23514", sql: "INSERT INTO task_schedules (definition_id, cron_expression) VALUES ($1, '')", args: []any{definitionID}},
 		{name: "task schedule timezone", code: "23514", sql: "INSERT INTO task_schedules (definition_id, cron_expression, timezone) VALUES ($1, '* * * * *', '')", args: []any{definitionID}},
 		{name: "task idempotency", code: "23505", sql: "INSERT INTO task_executions (task_type, idempotency_key) VALUES ('system.constraint', 'constraint-idempotency')"},
+		{name: "outbox execution foreign key", code: "23503", sql: "INSERT INTO task_outbox_messages (queue_id, execution_id, task_type) VALUES ('missing-execution', gen_random_uuid(), 'system.test')"},
+		{name: "outbox queue blank", code: "23514", sql: "INSERT INTO task_outbox_messages (queue_id, execution_id, task_type) VALUES ('', $1, 'system.test')", args: []any{executionID}},
+		{name: "outbox type blank", code: "23514", sql: "INSERT INTO task_outbox_messages (queue_id, execution_id, task_type) VALUES ('blank-type', $1, '')", args: []any{executionID}},
+		{name: "outbox retries", code: "23514", sql: "INSERT INTO task_outbox_messages (queue_id, execution_id, task_type, max_retries) VALUES ('invalid-retries', $1, 'system.test', -1)", args: []any{executionID}},
 	}
 
 	for _, tt := range tests {
@@ -198,6 +218,53 @@ func exerciseConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	t.Helper()
 	queries := dbgen.New(conn)
+	executionStore := taskstore.NewPostgresExecutionStore(queries)
+	execution, err := executionStore.CreateExecutionWithPendingPublish(ctx,
+		taskmodule.NewExecution{TaskType: taskmodule.SystemTestTaskType, QueueID: "integration-outbox", Payload: json.RawMessage(`{"processed_rows":1}`)},
+		taskmodule.Message{TaskType: taskmodule.SystemTestTaskType, Payload: json.RawMessage(`{"processed_rows":1}`)},
+		taskmodule.PublishOptions{QueueID: "integration-outbox", MaxRetries: 3, Timeout: time.Minute},
+	)
+	if err != nil {
+		t.Fatalf("CreateExecutionWithPendingPublish() error = %v", err)
+	}
+	publisher := &integrationPublisher{}
+	if err := queueplatform.NewOutboxDispatcher(executionStore, publisher).DispatchPending(ctx, 10); err != nil {
+		t.Fatalf("DispatchPending() error = %v", err)
+	}
+	if publisher.message.ExecutionID != execution.ID {
+		t.Fatalf("published message = %+v, execution = %+v", publisher.message, execution)
+	}
+	pending, err := executionStore.ListPendingPublishes(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListPendingPublishes() after drain error = %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending publishes after drain = %+v", pending)
+	}
+
+	terminalExecution, err := executionStore.CreateExecutionWithPendingPublish(ctx,
+		taskmodule.NewExecution{TaskType: taskmodule.SystemTestTaskType, QueueID: "terminal-outbox", Payload: json.RawMessage(`{}`)},
+		taskmodule.Message{TaskType: taskmodule.SystemTestTaskType, Payload: json.RawMessage(`{}`)},
+		taskmodule.PublishOptions{QueueID: "terminal-outbox", Timeout: time.Minute},
+	)
+	if err != nil {
+		t.Fatalf("create terminal outbox execution: %v", err)
+	}
+	if _, err := conn.Exec(ctx, "UPDATE task_executions SET status = 'succeeded' WHERE id = $1", terminalExecution.ID); err != nil {
+		t.Fatalf("mark terminal outbox execution succeeded: %v", err)
+	}
+	publisher.message = taskmodule.Message{}
+	if err := queueplatform.NewOutboxDispatcher(executionStore, publisher).DispatchPending(ctx, 10); err != nil {
+		t.Fatalf("dispatch terminal outbox: %v", err)
+	}
+	if publisher.message.ExecutionID != "" {
+		t.Fatalf("terminal execution was republished: %+v", publisher.message)
+	}
+	pending, err = executionStore.ListPendingPublishes(ctx, 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending terminal publishes after cleanup = %+v, %v", pending, err)
+	}
+
 	store := iamstore.New(queries)
 	authorization := iam.NewService(nil, store, iam.PasswordHasher{}, nil, nil)
 	created, err := queries.CreateUser(ctx, dbgen.CreateUserParams{

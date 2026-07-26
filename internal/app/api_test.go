@@ -14,9 +14,12 @@ import (
 	"time"
 
 	"backend-infrastructure-go/internal/config"
-	"backend-infrastructure-go/internal/modules/audit/requestmeta"
+	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/httpserver"
+	"backend-infrastructure-go/internal/platform/httpserver/requestmeta"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 type dependencyObserverStub struct{ calls []string }
@@ -166,5 +169,34 @@ func TestAPIRateLimitUsesClientIPExtractedBehindTrustedProxy(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), request)
 	if limiter.key != "203.0.113.9" {
 		t.Fatalf("rate-limit key = %q", limiter.key)
+	}
+}
+
+func TestAPICriticalRateLimitRoutesIncludeAuthAuditAndTaskControlPlane(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/auth/login",
+		"/api/v1/audit-logs",
+		"/api/v1/task-executions",
+	} {
+		if !isCriticalRateLimitPath(path) {
+			t.Errorf("critical rate-limit route %q is fail-open", path)
+		}
+	}
+	if isCriticalRateLimitPath("/health/live") {
+		t.Fatal("health endpoint must remain fail-open when the distributed limiter is unavailable")
+	}
+}
+
+func TestRedisCacheAdapterMapsMissingKeysWithoutHidingDependencyFailures(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	adapter := redisCacheAdapter{client: client}
+	if _, err := adapter.Get(context.Background(), "missing"); !errors.Is(err, iam.ErrNotFound) {
+		t.Fatalf("Get() error = %v, want IAM not found", err)
+	}
+	server.Close()
+	if _, err := adapter.Get(context.Background(), "dependency-failure"); err == nil || errors.Is(err, iam.ErrNotFound) {
+		t.Fatalf("Get() error = %v, want dependency failure", err)
 	}
 }

@@ -16,8 +16,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		"DATABASE_URL",
 		"REDIS_ADDR",
 		"SHUTDOWN_TIMEOUT",
-		"BREAKER_FAILURES",
-		"BREAKER_TIMEOUT",
 	} {
 		unsetEnvironment(t, name)
 	}
@@ -51,12 +49,6 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.ShutdownTimeout != 30*time.Second {
 		t.Fatalf("ShutdownTimeout = %s, want 30s", cfg.ShutdownTimeout)
-	}
-	if cfg.BreakerFailures != 5 {
-		t.Fatalf("BreakerFailures = %d, want 5", cfg.BreakerFailures)
-	}
-	if cfg.BreakerTimeout != 30*time.Second {
-		t.Fatalf("BreakerTimeout = %s, want 30s", cfg.BreakerTimeout)
 	}
 }
 
@@ -97,6 +89,7 @@ func TestLoadAllowsNonAPIRolesWithoutJWTSecret(t *testing.T) {
 func TestValidateAPIRejectsUnsafeProductionSecrets(t *testing.T) {
 	setValidEnvironment(t)
 	t.Setenv("APP_ENV", "production")
+	t.Setenv("ALLOW_INSECURE_INTERNAL_TRANSPORT", "true")
 	t.Setenv("JWT_SECRET", "replace-with-at-least-32-random-bytes")
 	t.Setenv("COOKIE_SECURE", "true")
 	cfg, err := Load()
@@ -114,6 +107,7 @@ func TestValidateAPIRejectsUnsafeProductionSecrets(t *testing.T) {
 func TestValidateAPIRequiresSecureCookiesInProduction(t *testing.T) {
 	setValidEnvironment(t)
 	t.Setenv("APP_ENV", "production")
+	t.Setenv("ALLOW_INSECURE_INTERNAL_TRANSPORT", "true")
 	t.Setenv("COOKIE_SECURE", "false")
 	cfg, err := Load()
 	if err != nil {
@@ -169,29 +163,12 @@ func TestLoadRejectsInvalidEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidBreakerFailures(t *testing.T) {
-	for _, value := range []string{"many", "-1", "0"} {
-		t.Run(value, func(t *testing.T) {
-			setValidEnvironment(t)
-			t.Setenv("BREAKER_FAILURES", value)
-
-			if _, err := Load(); err == nil {
-				t.Fatalf("Load() error = nil for BREAKER_FAILURES=%q", value)
-			}
-		})
-	}
-}
-
-func TestLoadRejectsInvalidBreakerTimeout(t *testing.T) {
-	for _, value := range []string{"later", "0s", "-1s"} {
-		t.Run(value, func(t *testing.T) {
-			setValidEnvironment(t)
-			t.Setenv("BREAKER_TIMEOUT", value)
-
-			if _, err := Load(); err == nil {
-				t.Fatalf("Load() error = nil for BREAKER_TIMEOUT=%q", value)
-			}
-		})
+func TestLoadIgnoresLegacyBreakerSettings(t *testing.T) {
+	setValidEnvironment(t)
+	t.Setenv("BREAKER_FAILURES", "legacy-invalid-value")
+	t.Setenv("BREAKER_TIMEOUT", "legacy-invalid-value")
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want unused breaker settings ignored", err)
 	}
 }
 
@@ -205,8 +182,6 @@ func setValidEnvironment(t *testing.T) {
 	t.Setenv("REDIS_ADDR", "localhost:6379")
 	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("SHUTDOWN_TIMEOUT", "30s")
-	t.Setenv("BREAKER_FAILURES", "5")
-	t.Setenv("BREAKER_TIMEOUT", "30s")
 }
 
 func TestLoadIncludesRuntimeWiringDefaults(t *testing.T) {
@@ -272,17 +247,72 @@ func TestValidateAPIRequiresStrongAdminBootstrapCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.ValidateAPI(); err == nil {
-		t.Fatal("expected missing admin credentials error")
+	if err := cfg.ValidateAPI(); err != nil {
+		t.Fatalf("ValidateAPI() error = %v, want API startup independent of bootstrap credentials", err)
+	}
+}
+
+func TestLoadRejectsPlaintextProductionDependencies(t *testing.T) {
+	tests := []struct {
+		name        string
+		databaseURL string
+		redisTLS    string
+	}{
+		{
+			name:        "postgres",
+			databaseURL: "postgres://backend:strong-database-password@db:5432/backend?sslmode=disable",
+			redisTLS:    "true",
+		},
+		{
+			name:        "redis",
+			databaseURL: "postgres://backend:strong-database-password@db:5432/backend?sslmode=verify-full",
+			redisTLS:    "false",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setValidEnvironment(t)
+			t.Setenv("APP_ENV", "production")
+			t.Setenv("COOKIE_SECURE", "true")
+			t.Setenv("DATABASE_URL", test.databaseURL)
+			t.Setenv("REDIS_TLS", test.redisTLS)
+			if _, err := Load(); err == nil {
+				t.Fatal("Load() error = nil, want encrypted production dependency requirement")
+			}
+		})
+	}
+}
+
+func TestLoadAllowsExplicitInternalTransportException(t *testing.T) {
+	setValidEnvironment(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("DATABASE_URL", "postgres://backend:strong-database-password@postgres:5432/backend?sslmode=disable")
+	t.Setenv("REDIS_TLS", "false")
+	t.Setenv("ALLOW_INSECURE_INTERNAL_TRANSPORT", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowInsecureTransport {
+		t.Fatal("AllowInsecureTransport = false, want explicit internal-network exception")
+	}
+}
+
+func TestValidateAdminBootstrapRequiresStrongCredentials(t *testing.T) {
+	setValidEnvironment(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ValidateAdminBootstrap(); err == nil {
+		t.Fatal("ValidateAdminBootstrap() error = nil, want missing credentials error")
 	}
 	cfg.AdminEmail = "admin@example.com"
 	cfg.AdminUsername = "admin"
-	cfg.AdminPassword = "short"
-	if err := cfg.ValidateAPI(); err == nil {
-		t.Fatal("expected weak admin password error")
-	}
 	cfg.AdminPassword = "long-admin-password"
-	if err := cfg.ValidateAPI(); err != nil {
+	if err := cfg.ValidateAdminBootstrap(); err != nil {
 		t.Fatal(err)
 	}
 }

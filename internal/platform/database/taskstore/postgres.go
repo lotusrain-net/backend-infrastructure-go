@@ -45,8 +45,12 @@ func (store *PostgresDefinitionStore) CreateDefinition(ctx context.Context, defi
 
 type ExecutionQueries interface {
 	CreateTaskExecution(context.Context, dbgen.CreateTaskExecutionParams) (dbgen.TaskExecution, error)
+	CreateTaskExecutionWithPendingPublish(context.Context, dbgen.CreateTaskExecutionWithPendingPublishParams) (dbgen.CreateTaskExecutionWithPendingPublishRow, error)
 	GetTaskExecution(context.Context, pgtype.UUID) (dbgen.TaskExecution, error)
-	UpdateTaskExecutionStatus(context.Context, dbgen.UpdateTaskExecutionStatusParams) error
+	ClaimTaskExecution(context.Context, dbgen.ClaimTaskExecutionParams) (int64, error)
+	UpdateTaskExecutionStatus(context.Context, dbgen.UpdateTaskExecutionStatusParams) (int64, error)
+	ListPendingTaskOutboxMessages(context.Context, int32) ([]dbgen.ListPendingTaskOutboxMessagesRow, error)
+	MarkTaskOutboxMessagePublished(context.Context, string) error
 }
 
 type PostgresExecutionStore struct {
@@ -58,30 +62,46 @@ func NewPostgresExecutionStore(queries ExecutionQueries) *PostgresExecutionStore
 }
 
 func (store *PostgresExecutionStore) CreateExecution(ctx context.Context, execution taskmodule.NewExecution) (taskmodule.Execution, error) {
+	params, err := createExecutionParams(execution)
+	if err != nil {
+		return taskmodule.Execution{}, err
+	}
+	row, err := store.queries.CreateTaskExecution(ctx, params)
+	if err != nil {
+		return taskmodule.Execution{}, mapExecutionWriteError(err, execution.IdempotencyKey)
+	}
+	return executionFromRow(row), nil
+}
+
+func executionFromPendingPublishRow(row dbgen.CreateTaskExecutionWithPendingPublishRow) taskmodule.Execution {
+	return executionFromRow(dbgen.TaskExecution(row))
+}
+
+func (store *PostgresExecutionStore) CreateExecutionWithPendingPublish(
+	ctx context.Context,
+	execution taskmodule.NewExecution,
+	message taskmodule.Message,
+	options taskmodule.PublishOptions,
+) (taskmodule.Execution, error) {
 	definitionID, err := nullableUUID(execution.DefinitionID)
 	if err != nil {
 		return taskmodule.Execution{}, err
 	}
-	row, err := store.queries.CreateTaskExecution(ctx, dbgen.CreateTaskExecutionParams{
-		DefinitionID:   definitionID,
-		TaskType:       execution.TaskType,
-		QueueID:        nullableText(execution.QueueID),
-		IdempotencyKey: nullableText(execution.IdempotencyKey),
-		Payload:        execution.Payload,
+	row, err := store.queries.CreateTaskExecutionWithPendingPublish(ctx, dbgen.CreateTaskExecutionWithPendingPublishParams{
+		DefinitionID:        definitionID,
+		TaskType:            execution.TaskType,
+		QueueID:             nullableText(options.QueueID),
+		IdempotencyKey:      nullableText(execution.IdempotencyKey),
+		Payload:             execution.Payload,
+		MaxRetries:          int32(options.MaxRetries),
+		TimeoutSeconds:      int32(options.Timeout / time.Second),
+		UniqueForSeconds:    int32(options.UniqueFor / time.Second),
+		ProcessAfterSeconds: int32(options.ProcessAfter / time.Second),
 	})
 	if err != nil {
-		var postgresError *pgconn.PgError
-		if errors.As(err, &postgresError) {
-			switch postgresError.Code {
-			case "23505":
-				return taskmodule.Execution{}, fmt.Errorf("%w: %s", taskmodule.ErrDuplicateSubmission, execution.IdempotencyKey)
-			case "23503":
-				return taskmodule.Execution{}, taskmodule.ErrDefinitionNotFound
-			}
-		}
-		return taskmodule.Execution{}, err
+		return taskmodule.Execution{}, mapExecutionWriteError(err, execution.IdempotencyKey)
 	}
-	return executionFromRow(row), nil
+	return executionFromPendingPublishRow(row), nil
 }
 
 func (store *PostgresExecutionStore) GetExecution(ctx context.Context, id string) (taskmodule.Execution, error) {
@@ -99,20 +119,78 @@ func (store *PostgresExecutionStore) GetExecution(ctx context.Context, id string
 	return executionFromRow(row), nil
 }
 
+func (store *PostgresExecutionStore) ClaimExecution(ctx context.Context, id string, attempt int, startedAt time.Time) error {
+	executionID, err := parseUUID(id)
+	if err != nil {
+		return err
+	}
+	rows, err := store.queries.ClaimTaskExecution(ctx, dbgen.ClaimTaskExecutionParams{
+		ID:        executionID,
+		Attempt:   int32(attempt),
+		StartedAt: nullableTime(&startedAt),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return taskmodule.ErrExecutionConflict
+	}
+	return nil
+}
+
 func (store *PostgresExecutionStore) UpdateExecution(ctx context.Context, update taskmodule.ExecutionUpdate) error {
 	executionID, err := parseUUID(update.ID)
 	if err != nil {
 		return err
 	}
-	return store.queries.UpdateTaskExecutionStatus(ctx, dbgen.UpdateTaskExecutionStatusParams{
-		ID:            executionID,
-		Status:        string(update.Status),
-		StartedAt:     nullableTime(update.StartedAt),
-		FinishedAt:    nullableTime(update.FinishedAt),
-		ErrorSummary:  nullableText(update.ErrorSummary),
-		ProcessedRows: update.ProcessedRows,
-		Attempt:       int32(update.Attempt),
+	rows, err := store.queries.UpdateTaskExecutionStatus(ctx, dbgen.UpdateTaskExecutionStatusParams{
+		ID:              executionID,
+		Status:          string(update.Status),
+		StartedAt:       nullableTime(update.StartedAt),
+		FinishedAt:      nullableTime(update.FinishedAt),
+		ErrorSummary:    nullableText(update.ErrorSummary),
+		ProcessedRows:   update.ProcessedRows,
+		Attempt:         int32(update.Attempt),
+		ExpectedStatus:  string(update.ExpectedStatus),
+		ExpectedAttempt: int32(update.ExpectedAttempt),
 	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return taskmodule.ErrExecutionConflict
+	}
+	return nil
+}
+
+func (store *PostgresExecutionStore) ListPendingPublishes(ctx context.Context, limit int) ([]taskmodule.PendingPublish, error) {
+	rows, err := store.queries.ListPendingTaskOutboxMessages(ctx, int32(limit))
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]taskmodule.PendingPublish, 0, len(rows))
+	for _, row := range rows {
+		pending = append(pending, taskmodule.PendingPublish{
+			ExecutionStatus: taskmodule.Status(row.ExecutionStatus),
+			Message: taskmodule.Message{
+				ExecutionID: formatUUID(row.ExecutionID),
+				TaskType:    row.TaskType,
+				Payload:     row.Payload,
+			},
+			Options: taskmodule.PublishOptions{
+				QueueID:      row.QueueID,
+				MaxRetries:   int(row.MaxRetries),
+				Timeout:      time.Duration(row.TimeoutSeconds) * time.Second,
+				UniqueFor:    time.Duration(row.UniqueForSeconds) * time.Second,
+				ProcessAfter: time.Duration(row.ProcessAfterSeconds) * time.Second,
+			},
+		})
+	}
+	return pending, nil
+}
+
+func (store *PostgresExecutionStore) MarkPublishSucceeded(ctx context.Context, queueID string) error {
+	return store.queries.MarkTaskOutboxMessagePublished(ctx, queueID)
 }
 
 type ScheduleQueries interface {
@@ -177,6 +255,33 @@ func executionFromRow(row dbgen.TaskExecution) taskmodule.Execution {
 		StartedAt:      timeValue(row.StartedAt),
 		FinishedAt:     timeValue(row.FinishedAt),
 	}
+}
+
+func createExecutionParams(execution taskmodule.NewExecution) (dbgen.CreateTaskExecutionParams, error) {
+	definitionID, err := nullableUUID(execution.DefinitionID)
+	if err != nil {
+		return dbgen.CreateTaskExecutionParams{}, err
+	}
+	return dbgen.CreateTaskExecutionParams{
+		DefinitionID:   definitionID,
+		TaskType:       execution.TaskType,
+		QueueID:        nullableText(execution.QueueID),
+		IdempotencyKey: nullableText(execution.IdempotencyKey),
+		Payload:        execution.Payload,
+	}, nil
+}
+
+func mapExecutionWriteError(err error, idempotencyKey string) error {
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) {
+		switch postgresError.Code {
+		case "23505":
+			return fmt.Errorf("%w: %s", taskmodule.ErrDuplicateSubmission, idempotencyKey)
+		case "23503":
+			return taskmodule.ErrDefinitionNotFound
+		}
+	}
+	return err
 }
 
 func parseUUID(value string) (pgtype.UUID, error) {

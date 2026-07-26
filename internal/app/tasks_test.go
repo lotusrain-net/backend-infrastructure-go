@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,47 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 )
+
+type outboxDispatcherStub struct {
+	calls atomic.Int32
+	err   error
+}
+
+func (stub *outboxDispatcherStub) DispatchPending(context.Context, int) error {
+	stub.calls.Add(1)
+	return stub.err
+}
+
+func TestRunOutboxDispatcherDrainsImmediatelyAndRetriesFailures(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var output bytes.Buffer
+	logger := platformlogging.New(&output, slog.LevelInfo, "test")
+	dispatcher := &outboxDispatcherStub{err: errors.New("redis unavailable")}
+	done := make(chan struct{})
+
+	go func() {
+		runOutboxDispatcher(ctx, logger, dispatcher, 5*time.Millisecond, 10)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for dispatcher.calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if calls := dispatcher.calls.Load(); calls < 2 {
+		t.Fatalf("dispatcher calls = %d, want startup drain and retry", calls)
+	}
+	if !strings.Contains(output.String(), "task outbox dispatch failed") {
+		t.Fatalf("logs = %q", output.String())
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("dispatcher loop did not stop after cancellation")
+	}
+}
 
 func TestBuildScheduledTaskCarriesDefinitionExecutionPolicy(t *testing.T) {
 	schedule := taskmodule.Schedule{ID: "schedule-1", DefinitionID: "definition-1", TaskType: taskmodule.SystemTestTaskType, Payload: json.RawMessage(`{"processed_rows":4}`), MaxRetries: 5, Timeout: 2 * time.Minute, Enabled: true}
@@ -82,11 +124,26 @@ func TestWorkerMetricsServerExposesTerminalTaskMetrics(t *testing.T) {
 	}
 }
 
+func TestRuntimeTaskCatalogRegistersEveryWorkerHandler(t *testing.T) {
+	registry, err := newTaskRegistry(runtimeTaskCatalog)
+	if err != nil {
+		t.Fatalf("newTaskRegistry() error = %v", err)
+	}
+	for _, taskType := range RuntimeTaskTypes() {
+		if _, err := registry.Resolve(taskType); err != nil {
+			t.Fatalf("Resolve(%q) error = %v", taskType, err)
+		}
+	}
+}
+
 func TestSchedulerOwnsItsAsynqRedisConnection(t *testing.T) {
 	redisServer := miniredis.RunT(t)
 	var output bytes.Buffer
 	logger := platformlogging.New(&output, slog.LevelInfo, "test")
-	scheduler := newAsynqScheduler(config.Config{RedisAddr: redisServer.Addr()}, logger)
+	scheduler, err := newAsynqScheduler(config.Config{RedisAddr: redisServer.Addr()}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := scheduler.Start(); err != nil {
 		t.Fatal(err)
 	}

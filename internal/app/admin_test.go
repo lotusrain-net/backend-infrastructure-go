@@ -8,21 +8,30 @@ import (
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type adminQueriesStub struct {
-	user     dbgen.User
-	getErr   error
-	created  int
-	assigned int
+	user      dbgen.User
+	getErr    error
+	createErr error
+	getUser   func() (dbgen.User, error)
+	created   int
+	assigned  int
 }
 
 func (s *adminQueriesStub) GetUserByEmail(context.Context, string) (dbgen.User, error) {
+	if s.getUser != nil {
+		return s.getUser()
+	}
 	return s.user, s.getErr
 }
 func (s *adminQueriesStub) CreateUser(_ context.Context, p dbgen.CreateUserParams) (dbgen.User, error) {
 	s.created++
+	if s.createErr != nil {
+		return dbgen.User{}, s.createErr
+	}
 	s.user = dbgen.User{ID: pgtype.UUID{Valid: true}, Email: p.Email, Username: p.Username, PasswordHash: p.PasswordHash, IsActive: true}
 	return s.user, nil
 }
@@ -57,5 +66,31 @@ func TestBootstrapAdminPropagatesDatabaseFailure(t *testing.T) {
 	err := BootstrapAdmin(context.Background(), &adminQueriesStub{getErr: want}, iam.NewPasswordHasher(iam.DefaultArgon2Params()), AdminBootstrap{Email: "a@b.com", Username: "admin", Password: "long-admin-password"})
 	if !errors.Is(err, want) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestBootstrapAdminRecoversConcurrentInsert(t *testing.T) {
+	queries := &adminQueriesStub{
+		user:      dbgen.User{ID: pgtype.UUID{Valid: true}, Email: "admin@example.com", Username: "admin", IsActive: true},
+		getErr:    pgx.ErrNoRows,
+		createErr: &pgconn.PgError{Code: "23505"},
+	}
+	queriesAfterConflict := false
+	queries.getUser = func() (dbgen.User, error) {
+		if queriesAfterConflict {
+			return queries.user, nil
+		}
+		queriesAfterConflict = true
+		return dbgen.User{}, pgx.ErrNoRows
+	}
+
+	err := BootstrapAdmin(context.Background(), queries, iam.NewPasswordHasher(iam.DefaultArgon2Params()), AdminBootstrap{
+		Email: "admin@example.com", Username: "admin", Password: "long-admin-password",
+	})
+	if err != nil {
+		t.Fatalf("BootstrapAdmin() error = %v, want concurrent insert recovery", err)
+	}
+	if queries.assigned != 1 {
+		t.Fatalf("assigned = %d, want 1", queries.assigned)
 	}
 }

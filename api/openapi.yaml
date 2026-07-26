@@ -805,18 +805,22 @@ components:
         max_retries:
           type: integer
           minimum: 0
+          maximum: 25
           default: 3
         timeout_seconds:
           type: integer
           minimum: 1
+          maximum: 86400
           default: 300
         unique_for_seconds:
           type: integer
           minimum: 0
+          maximum: 604800
           default: 0
         process_after_seconds:
           type: integer
           minimum: 0
+          maximum: 2592000
           default: 0
     TaskExecution:
       type: object

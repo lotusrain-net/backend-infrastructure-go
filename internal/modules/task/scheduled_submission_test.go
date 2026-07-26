@@ -17,7 +17,8 @@ func (s *scheduledStore) CreateExecution(_ context.Context, in NewExecution) (Ex
 func (*scheduledStore) GetExecution(context.Context, string) (Execution, error) {
 	return Execution{}, nil
 }
-func (*scheduledStore) UpdateExecution(context.Context, ExecutionUpdate) error { return nil }
+func (*scheduledStore) ClaimExecution(context.Context, string, int, time.Time) error { return nil }
+func (*scheduledStore) UpdateExecution(context.Context, ExecutionUpdate) error       { return nil }
 
 type scheduledPublisher struct{ messages []Message }
 

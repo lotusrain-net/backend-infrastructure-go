@@ -12,6 +12,7 @@ import (
 	"backend-infrastructure-go/internal/modules/audit"
 	"backend-infrastructure-go/internal/modules/iam"
 	taskmodule "backend-infrastructure-go/internal/modules/task"
+	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 	"backend-infrastructure-go/internal/shared/apperror"
 	"backend-infrastructure-go/internal/shared/pagination"
 	"backend-infrastructure-go/internal/shared/requestcontext"
@@ -32,6 +33,9 @@ type taskReader interface {
 type taskObserver interface {
 	ObserveTask(taskType, status string, duration time.Duration)
 }
+type taskCatalog interface {
+	Contains(taskType string) bool
+}
 type PlatformRoutes struct {
 	IAM          iam.Application
 	JWT          *iam.JWTManager
@@ -40,15 +44,19 @@ type PlatformRoutes struct {
 	Executions   taskReader
 	Recorder     auditPreserver
 	TaskObserver taskObserver
+	TaskCatalog  taskCatalog
 }
 
 func RegisterPlatformRoutes(router chi.Router, deps PlatformRoutes) {
+	if deps.TaskCatalog == nil {
+		deps.TaskCatalog = runtimeTaskCatalog
+	}
 	handler := platformHandler{deps: deps}
 	router.Group(func(r chi.Router) {
-		r.Use(iam.Authenticate(deps.JWT))
-		r.With(iam.RequirePermission(deps.IAM, "audit:read")).Get("/api/v1/audit-logs", handler.auditLogs)
-		r.With(iam.RequirePermission(deps.IAM, "tasks:write")).Post("/api/v1/task-executions", handler.submitTask)
-		r.With(iam.RequirePermission(deps.IAM, "tasks:read")).Get("/api/v1/task-executions/{executionID}", handler.getExecution)
+		r.Use(iamhttp.Authenticate(deps.JWT))
+		r.With(iamhttp.RequirePermission(deps.IAM, "audit:read")).Get("/api/v1/audit-logs", handler.auditLogs)
+		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:write")).Post("/api/v1/task-executions", handler.submitTask)
+		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:read")).Get("/api/v1/task-executions/{executionID}", handler.getExecution)
 	})
 }
 
@@ -93,7 +101,7 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	validationErrors := make(map[string]string)
 	if in.TaskType == "" {
 		validationErrors["task_type"] = "is required"
-	} else if in.TaskType != taskmodule.SystemTestTaskType {
+	} else if !h.deps.TaskCatalog.Contains(in.TaskType) {
 		validationErrors["task_type"] = "is not a registered task type"
 	}
 	var payloadObject map[string]json.RawMessage
@@ -105,10 +113,10 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 		validationErrors["definition_id"] = "must be a UUID"
 	}
 	idempotencyKey := optionalString(in.IdempotencyKey, "idempotency_key", validationErrors)
-	maxRetries := optionalInt(in.MaxRetries, 3, 0, "max_retries", validationErrors)
-	timeoutSeconds := optionalInt(in.TimeoutSeconds, 300, 1, "timeout_seconds", validationErrors)
-	uniqueForSeconds := optionalInt(in.UniqueForSeconds, 0, 0, "unique_for_seconds", validationErrors)
-	processAfterSeconds := optionalInt(in.ProcessAfterSeconds, 0, 0, "process_after_seconds", validationErrors)
+	maxRetries := optionalInt(in.MaxRetries, 3, 0, taskmodule.MaxSubmissionRetries, "max_retries", validationErrors)
+	timeoutSeconds := optionalInt(in.TimeoutSeconds, 300, 1, int(taskmodule.MaxSubmissionTimeout/time.Second), "timeout_seconds", validationErrors)
+	uniqueForSeconds := optionalInt(in.UniqueForSeconds, 0, 0, int(taskmodule.MaxSubmissionUniqueFor/time.Second), "unique_for_seconds", validationErrors)
+	processAfterSeconds := optionalInt(in.ProcessAfterSeconds, 0, 0, int(taskmodule.MaxSubmissionProcessAfter/time.Second), "process_after_seconds", validationErrors)
 	if len(validationErrors) > 0 {
 		response.WriteError(w, apperror.Validation(validationErrors))
 		return
@@ -135,6 +143,10 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 			response.WriteError(w, apperror.New(http.StatusConflict, "duplicate task submission", http.StatusConflict, err))
 			return
 		}
+		if errors.Is(err, taskmodule.ErrInvalidSubmission) {
+			response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid task submission"}))
+			return
+		}
 		response.WriteError(w, err)
 		return
 	}
@@ -153,7 +165,7 @@ func optionalString(raw json.RawMessage, field string, validationErrors map[stri
 	return value
 }
 
-func optionalInt(raw json.RawMessage, fallback, minimum int, field string, validationErrors map[string]string) int {
+func optionalInt(raw json.RawMessage, fallback, minimum, maximum int, field string, validationErrors map[string]string) int {
 	if len(raw) == 0 {
 		return fallback
 	}
@@ -164,6 +176,8 @@ func optionalInt(raw json.RawMessage, fallback, minimum int, field string, valid
 	}
 	if value < minimum {
 		validationErrors[field] = "must be greater than or equal to " + strconv.Itoa(minimum)
+	} else if value > maximum {
+		validationErrors[field] = "must be less than or equal to " + strconv.Itoa(maximum)
 	}
 	return value
 }

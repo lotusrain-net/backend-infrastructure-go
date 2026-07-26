@@ -9,15 +9,17 @@ import (
 
 	"backend-infrastructure-go/internal/config"
 	"backend-infrastructure-go/internal/modules/audit"
-	auditpostgres "backend-infrastructure-go/internal/modules/audit/postgres"
-	"backend-infrastructure-go/internal/modules/audit/requestmeta"
 	"backend-infrastructure-go/internal/modules/iam"
 	taskmodule "backend-infrastructure-go/internal/modules/task"
+	cacheplatform "backend-infrastructure-go/internal/platform/cache"
 	"backend-infrastructure-go/internal/platform/database"
+	"backend-infrastructure-go/internal/platform/database/auditstore"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"backend-infrastructure-go/internal/platform/database/iamstore"
 	"backend-infrastructure-go/internal/platform/database/taskstore"
 	"backend-infrastructure-go/internal/platform/httpserver"
+	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"backend-infrastructure-go/internal/platform/httpserver/requestmeta"
 	"backend-infrastructure-go/internal/platform/observability"
 	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	"github.com/go-chi/chi/v5"
@@ -62,9 +64,10 @@ var knownAPIRoutes = []string{
 }
 
 type apiRuntime struct {
-	server *http.Server
-	pool   *pgxpool.Pool
-	redis  *redis.Client
+	server    *http.Server
+	pool      *pgxpool.Pool
+	redis     *redis.Client
+	resources *Stack
 }
 
 func (runtime *apiRuntime) Run(context.Context) error {
@@ -75,6 +78,9 @@ func (runtime *apiRuntime) Run(context.Context) error {
 	return err
 }
 func (runtime *apiRuntime) Shutdown(ctx context.Context) error {
+	if runtime.resources != nil {
+		return runtime.resources.Close(ctx)
+	}
 	var result error
 	if runtime.server != nil {
 		result = errors.Join(result, runtime.server.Shutdown(ctx))
@@ -96,29 +102,30 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 	if err != nil {
 		return nil, err
 	}
-	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB})
-	if err := redisClient.Ping(ctx).Err(); err != nil {
+	resources := NewStack()
+	resources.Add(resourceCloser(func(context.Context) error {
 		pool.Close()
-		_ = redisClient.Close()
-		return nil, err
+		return nil
+	}))
+	redisTLS, err := cacheplatform.NewTLSConfig(cfg.RedisTLS, cfg.RedisTLSServerName, cfg.RedisTLSCAFile)
+	if err != nil {
+		return nil, closeBuildResources(ctx, resources, err)
+	}
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB, TLSConfig: redisTLS})
+	resources.Add(resourceCloser(func(context.Context) error { return redisClient.Close() }))
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		return nil, closeBuildResources(ctx, resources, err)
 	}
 	queries := dbgen.New(pool)
-	if err := BootstrapAdmin(ctx, queries, iam.NewPasswordHasher(iam.DefaultArgon2Params()), AdminBootstrap{Email: cfg.AdminEmail, Username: cfg.AdminUsername, Password: cfg.AdminPassword}); err != nil {
-		pool.Close()
-		_ = redisClient.Close()
-		return nil, err
-	}
 	iamRepo := iamstore.New(queries)
 	jwt, err := iam.NewJWTManager([]byte(cfg.JWTSecret), cfg.JWTIssuer, cfg.AccessTokenTTL)
 	if err != nil {
-		pool.Close()
-		_ = redisClient.Close()
-		return nil, err
+		return nil, closeBuildResources(ctx, resources, err)
 	}
 	refresh := iam.NewRefreshStore(redisCacheAdapter{client: redisClient}, "iam:"+cfg.Environment, cfg.RefreshTokenTTL)
 	iamService := iam.NewService(iamRepo, iamRepo, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, refresh)
-	auditService := audit.NewService(auditpostgres.New(queries))
-	metrics := observability.New(observability.Config{Namespace: "backend", KnownRoutes: knownAPIRoutes, KnownDependencies: []string{"postgres", "redis"}, KnownTaskTypes: []string{"system.test"}})
+	auditService := audit.NewService(auditstore.New(queries))
+	metrics := observability.New(observability.Config{Namespace: "backend", KnownRoutes: knownAPIRoutes, KnownDependencies: []string{"postgres", "redis"}, KnownTaskTypes: RuntimeTaskTypes()})
 	auditRecorder := audit.NewBestEffortRecorder(auditService, logger, metrics)
 	executionStore := taskstore.NewPostgresExecutionStore(queries)
 	queueClient := asynq.NewClientFromRedisClient(redisClient)
@@ -130,17 +137,17 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 		now:          time.Now,
 	}
 	limiter := httpserver.NewRedisRateLimiter(redisClient, "ratelimit:"+cfg.Environment, time.Now)
-	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RequestMetadataMiddleware: requestmeta.Middleware(requestmeta.Config{TrustedProxies: cfg.TrustedProxyCIDRs}), CORS: httpserver.CORSConfig{AllowedOrigins: cfg.CORSAllowedOrigins, AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions}, AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"}, ExposedHeaders: []string{"X-Request-ID"}, AllowCredentials: cfg.CORSAllowCredentials, MaxAge: 10 * time.Minute}, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Key: auditClientKey, Critical: func(r *http.Request) bool { return stringsHasAuthPrefix(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
+	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RequestMetadataMiddleware: requestmeta.Middleware(requestmeta.Config{TrustedProxies: cfg.TrustedProxyCIDRs}), CORS: httpserver.CORSConfig{AllowedOrigins: cfg.CORSAllowedOrigins, AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions}, AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"}, ExposedHeaders: []string{"X-Request-ID"}, AllowCredentials: cfg.CORSAllowCredentials, MaxAge: 10 * time.Minute}, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Key: auditClientKey, Critical: func(r *http.Request) bool { return isCriticalRateLimitPath(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
 		audited := newAuditedIAM(iamService, auditRecorder)
-		iam.RegisterRoutes(router, audited, jwt, iam.HTTPConfig{SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})
-		RegisterPlatformRoutes(router, PlatformRoutes{IAM: audited, JWT: jwt, Audits: auditService, Tasks: submissions, Executions: executionStore, Recorder: auditRecorder, TaskObserver: metrics})
+		iamhttp.RegisterRoutes(router, audited, jwt, iamhttp.HTTPConfig{SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})
+		RegisterPlatformRoutes(router, PlatformRoutes{IAM: audited, JWT: jwt, Audits: auditService, Tasks: submissions, Executions: executionStore, Recorder: auditRecorder, TaskObserver: metrics, TaskCatalog: runtimeTaskCatalog})
 	}})
 	if err != nil {
-		pool.Close()
-		_ = redisClient.Close()
-		return nil, err
+		return nil, closeBuildResources(ctx, resources, err)
 	}
-	return &apiRuntime{server: newHTTPServer(cfg, handler), pool: pool, redis: redisClient}, nil
+	server := newHTTPServer(cfg, handler)
+	resources.Add(resourceCloser(server.Shutdown))
+	return &apiRuntime{server: server, pool: pool, redis: redisClient, resources: resources}, nil
 }
 
 func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
@@ -158,7 +165,11 @@ func newHTTPServer(cfg config.Config, handler http.Handler) *http.Server {
 type redisCacheAdapter struct{ client *redis.Client }
 
 func (a redisCacheAdapter) Get(ctx context.Context, key string) (string, error) {
-	return a.client.Get(ctx, key).Result()
+	value, err := a.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", iam.ErrNotFound
+	}
+	return value, err
 }
 func (a redisCacheAdapter) Eval(ctx context.Context, script string, keys []string, args ...any) (any, error) {
 	return a.client.Eval(ctx, script, keys, args...).Result()
@@ -201,7 +212,11 @@ func (r dependencyReadiness) check(ctx context.Context, name string, ping func(c
 	}
 	return err
 }
-func stringsHasAuthPrefix(path string) bool { return len(path) >= 12 && path[:12] == "/api/v1/auth" }
+func isCriticalRateLimitPath(path string) bool {
+	return (len(path) >= 12 && path[:12] == "/api/v1/auth") ||
+		path == "/api/v1/audit-logs" ||
+		path == "/api/v1/task-executions"
+}
 
 func auditClientKey(request *http.Request) string {
 	metadata := audit.RequestMetadataFromContext(request.Context())

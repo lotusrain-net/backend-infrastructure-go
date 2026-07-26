@@ -23,12 +23,14 @@ type Config struct {
 	RedisAddr                string
 	JWTSecret                string
 	ShutdownTimeout          time.Duration
-	BreakerFailures          uint32
-	BreakerTimeout           time.Duration
 	DatabaseMinConns         int32
 	DatabaseMaxConns         int32
 	RedisPassword            string
 	RedisDB                  int
+	RedisTLS                 bool
+	RedisTLSServerName       string
+	RedisTLSCAFile           string
+	AllowInsecureTransport   bool
 	JWTIssuer                string
 	AccessTokenTTL           time.Duration
 	RefreshTokenTTL          time.Duration
@@ -52,14 +54,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	breakerTimeout, err := duration("BREAKER_TIMEOUT", 30*time.Second)
-	if err != nil {
-		return Config{}, err
-	}
-	breakerFailures, err := unsigned("BREAKER_FAILURES", 5)
-	if err != nil {
-		return Config{}, err
-	}
 	databaseMinConns, err := integer("DATABASE_MIN_CONNS", 1)
 	if err != nil {
 		return Config{}, err
@@ -69,6 +63,14 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	redisDB, err := integer("REDIS_DB", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	redisTLS, err := boolean("REDIS_TLS", false)
+	if err != nil {
+		return Config{}, err
+	}
+	allowInsecureTransport, err := boolean("ALLOW_INSECURE_INTERNAL_TRANSPORT", false)
 	if err != nil {
 		return Config{}, err
 	}
@@ -119,12 +121,14 @@ func Load() (Config, error) {
 		RedisAddr:                value("REDIS_ADDR", "localhost:6379"),
 		JWTSecret:                os.Getenv("JWT_SECRET"),
 		ShutdownTimeout:          shutdownTimeout,
-		BreakerFailures:          breakerFailures,
-		BreakerTimeout:           breakerTimeout,
 		DatabaseMinConns:         int32(databaseMinConns),
 		DatabaseMaxConns:         int32(databaseMaxConns),
 		RedisPassword:            os.Getenv("REDIS_PASSWORD"),
 		RedisDB:                  redisDB,
+		RedisTLS:                 redisTLS,
+		RedisTLSServerName:       value("REDIS_TLS_SERVER_NAME", ""),
+		RedisTLSCAFile:           value("REDIS_TLS_CA_FILE", ""),
+		AllowInsecureTransport:   allowInsecureTransport,
 		JWTIssuer:                value("JWT_ISSUER", "backend-infrastructure-go"),
 		AccessTokenTTL:           accessTokenTTL,
 		RefreshTokenTTL:          refreshTokenTTL,
@@ -153,6 +157,18 @@ func (c Config) ValidateAPI() error {
 	if len(c.JWTSecret) < minimumSecretLength {
 		return fmt.Errorf("JWT_SECRET must contain at least %d bytes", minimumSecretLength)
 	}
+	if c.Environment == "production" {
+		if !c.SecureCookies {
+			return errors.New("COOKIE_SECURE must be true in production")
+		}
+		if isPlaceholderSecret(c.JWTSecret) {
+			return errors.New("JWT_SECRET must not use a public placeholder in production")
+		}
+	}
+	return nil
+}
+
+func (c Config) ValidateAdminBootstrap() error {
 	if !strings.Contains(c.AdminEmail, "@") {
 		return errors.New("ADMIN_EMAIL is required and must be an email")
 	}
@@ -162,16 +178,8 @@ func (c Config) ValidateAPI() error {
 	if len(c.AdminPassword) < 12 {
 		return errors.New("ADMIN_PASSWORD must contain at least 12 bytes")
 	}
-	if c.Environment == "production" {
-		if !c.SecureCookies {
-			return errors.New("COOKIE_SECURE must be true in production")
-		}
-		if isPlaceholderSecret(c.JWTSecret) {
-			return errors.New("JWT_SECRET must not use a public placeholder in production")
-		}
-		if isPlaceholderSecret(c.AdminPassword) {
-			return errors.New("ADMIN_PASSWORD must not use a public placeholder in production")
-		}
+	if c.Environment == "production" && isPlaceholderSecret(c.AdminPassword) {
+		return errors.New("ADMIN_PASSWORD must not use a public placeholder in production")
 	}
 	return nil
 }
@@ -202,6 +210,16 @@ func (c Config) Validate() error {
 				return errors.New("DATABASE_URL must not use a public placeholder password in production")
 			}
 		}
+		if !c.AllowInsecureTransport {
+			switch strings.ToLower(parsed.Query().Get("sslmode")) {
+			case "require", "verify-ca", "verify-full":
+			default:
+				return errors.New("DATABASE_URL must require TLS in production")
+			}
+			if !c.RedisTLS {
+				return errors.New("REDIS_TLS must be true in production")
+			}
+		}
 	}
 	if c.RedisAddr == "" {
 		return errors.New("REDIS_ADDR is required")
@@ -213,12 +231,6 @@ func (c Config) Validate() error {
 	}
 	if c.ShutdownTimeout <= 0 {
 		return errors.New("SHUTDOWN_TIMEOUT must be positive")
-	}
-	if c.BreakerFailures == 0 {
-		return errors.New("BREAKER_FAILURES must be positive")
-	}
-	if c.BreakerTimeout <= 0 {
-		return errors.New("BREAKER_TIMEOUT must be positive")
 	}
 	if c.DatabaseMinConns < 0 || c.DatabaseMaxConns <= 0 || c.DatabaseMinConns > c.DatabaseMaxConns {
 		return errors.New("database connection limits are invalid")
@@ -313,16 +325,4 @@ func duration(name string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: %w", name, err)
 	}
 	return parsed, nil
-}
-
-func unsigned(name string, fallback uint32) (uint32, error) {
-	raw, ok := os.LookupEnv(name)
-	if !ok {
-		return fallback, nil
-	}
-	parsed, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 32)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", name, err)
-	}
-	return uint32(parsed), nil
 }

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"backend-infrastructure-go/internal/app"
+	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
@@ -140,14 +142,32 @@ func TestTaskSubmissionSchemaMatchesHTTPContract(t *testing.T) {
 		}
 	}
 	taskType := schema.Properties["task_type"].Value
-	if taskType == nil || len(taskType.Enum) != 1 || taskType.Enum[0] != "system.test" {
-		t.Fatalf("task_type enum = %v, want [system.test]", taskType.Enum)
+	wantTaskTypes := app.RuntimeTaskTypes()
+	if taskType == nil || len(taskType.Enum) != len(wantTaskTypes) {
+		t.Fatalf("task_type enum = %v, want %v", taskType.Enum, wantTaskTypes)
+	}
+	for index, want := range wantTaskTypes {
+		if taskType.Enum[index] != want {
+			t.Fatalf("task_type enum = %v, want %v", taskType.Enum, wantTaskTypes)
+		}
 	}
 	defaults := map[string]float64{"max_retries": 3, "timeout_seconds": 300, "unique_for_seconds": 0, "process_after_seconds": 0}
 	for name, want := range defaults {
 		property := schema.Properties[name].Value
 		if property == nil || property.Default != want {
 			t.Errorf("%s default = %#v, want %v", name, property.Default, want)
+		}
+	}
+	maximums := map[string]float64{
+		"max_retries":           taskmodule.MaxSubmissionRetries,
+		"timeout_seconds":       taskmodule.MaxSubmissionTimeout.Seconds(),
+		"unique_for_seconds":    taskmodule.MaxSubmissionUniqueFor.Seconds(),
+		"process_after_seconds": taskmodule.MaxSubmissionProcessAfter.Seconds(),
+	}
+	for name, want := range maximums {
+		property := schema.Properties[name].Value
+		if property == nil || property.Max == nil || *property.Max != want {
+			t.Errorf("%s maximum = %v, want %v", name, property.Max, want)
 		}
 	}
 	operation := operationAt(t, document, http.MethodPost, "/api/v1/task-executions")

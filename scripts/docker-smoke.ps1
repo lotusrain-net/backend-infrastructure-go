@@ -85,7 +85,7 @@ try {
         throw "Could not resolve the Compose configuration"
     }
     $resolvedCompose = $resolvedComposeJSON | ConvertFrom-Json
-    $adminEmail = [string]$resolvedCompose.services.api.environment.ADMIN_EMAIL
+    $adminEmail = [string]$resolvedCompose.services.'seed-admin'.environment.ADMIN_EMAIL
     $adminPassword = $env:ADMIN_PASSWORD
     if ([string]::IsNullOrWhiteSpace($adminEmail) -or [string]::IsNullOrWhiteSpace($adminPassword)) {
         throw "Could not resolve E2E administrator credentials"

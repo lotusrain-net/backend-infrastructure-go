@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"backend-infrastructure-go/internal/modules/iam"
+	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 )
 
 func TestHealthHTTPContractUsesSharedEnvelopeAndRequestID(t *testing.T) {
@@ -65,7 +66,7 @@ func TestLoginHTTPContractReturnsTokenEnvelopeAndRefreshCookie(t *testing.T) {
 	for _, cookie := range recorder.Result().Cookies() {
 		cookies[cookie.Name] = cookie
 	}
-	if cookies[iam.AccessCookieName] == nil || cookies[iam.RefreshCookieName] == nil || !cookies[iam.AccessCookieName].HttpOnly || !cookies[iam.RefreshCookieName].HttpOnly {
+	if cookies[iamhttp.AccessCookieName] == nil || cookies[iamhttp.RefreshCookieName] == nil || !cookies[iamhttp.AccessCookieName].HttpOnly || !cookies[iamhttp.RefreshCookieName].HttpOnly {
 		t.Fatalf("authentication cookies = %+v", cookies)
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" || recorder.Header().Get("Pragma") != "no-cache" {

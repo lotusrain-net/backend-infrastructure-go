@@ -8,6 +8,10 @@ import (
 
 type Closer interface{ Close(context.Context) error }
 
+type resourceCloser func(context.Context) error
+
+func (closer resourceCloser) Close(ctx context.Context) error { return closer(ctx) }
+
 type Stack struct {
 	mu      sync.Mutex
 	closers []Closer
@@ -29,6 +33,13 @@ func BuildResources(ctx context.Context, factories ...Factory) (*Stack, error) {
 }
 
 func NewStack() *Stack { return &Stack{} }
+
+func closeBuildResources(ctx context.Context, stack *Stack, buildErr error) error {
+	if stack == nil {
+		return buildErr
+	}
+	return errors.Join(buildErr, stack.Close(context.WithoutCancel(ctx)))
+}
 func (s *Stack) Add(closer Closer) {
 	if closer == nil {
 		return

@@ -1,4 +1,4 @@
-package postgres_test
+package auditstore_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/audit/postgres"
+	"backend-infrastructure-go/internal/platform/database/auditstore"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 )
 
@@ -19,7 +19,7 @@ func TestRepositoryCreatesAuditLogThroughDBGen(t *testing.T) {
 	actor := "8d3f4a0e-dab4-4af7-bd44-dbf3213c5b66"
 	ip := netip.MustParseAddr("203.0.113.9")
 	queries := &queriesStub{created: row("00000000-0000-0000-0000-000000000001", "request-1", actor, "auth.login", "success", "session", time.Now())}
-	repository := postgres.New(queries)
+	repository := auditstore.New(queries)
 
 	got, err := repository.Create(context.Background(), audit.NewEvent{
 		RequestID: "request-1", ActorID: &actor, Action: "auth.login", Result: audit.ResultSuccess,
@@ -48,7 +48,7 @@ func TestRepositoryDelegatesCombinedFiltersPaginationAndCountToDBGen(t *testing.
 		rows:  []dbgen.AuditLog{row("00000000-0000-0000-0000-000000000003", "request-3", actor, "task.create", "failure", "task", from.Add(2*time.Hour))},
 		count: 2,
 	}
-	repository := postgres.New(queries)
+	repository := auditstore.New(queries)
 
 	items, total, err := repository.List(context.Background(), audit.Filter{
 		RequestID: "request-3", ActorID: actor, Action: "task.create", Result: audit.ResultFailure,
@@ -73,7 +73,7 @@ func TestRepositoryDelegatesCombinedFiltersPaginationAndCountToDBGen(t *testing.
 
 func TestRepositoryPropagatesDBGenErrors(t *testing.T) {
 	want := errors.New("query failed")
-	repository := postgres.New(&queriesStub{listErr: want})
+	repository := auditstore.New(&queriesStub{listErr: want})
 	_, _, err := repository.List(context.Background(), audit.Filter{}, 20, 0)
 	if !errors.Is(err, want) {
 		t.Fatalf("List() error = %v, want %v", err, want)
@@ -82,7 +82,7 @@ func TestRepositoryPropagatesDBGenErrors(t *testing.T) {
 
 func TestRepositoryPropagatesCountError(t *testing.T) {
 	want := errors.New("count failed")
-	repository := postgres.New(&queriesStub{countErr: want})
+	repository := auditstore.New(&queriesStub{countErr: want})
 	_, _, err := repository.List(context.Background(), audit.Filter{}, 20, 0)
 	if !errors.Is(err, want) {
 		t.Fatalf("List() error = %v, want %v", err, want)

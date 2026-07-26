@@ -52,3 +52,30 @@ func TestBuildResourcesClosesConstructedResourcesWhenDependencyFails(t *testing.
 		t.Fatal("constructed dependency was not closed")
 	}
 }
+
+func TestRoleRuntimesCloseTheirResourceStacks(t *testing.T) {
+	tests := []struct {
+		name     string
+		shutdown func(*Stack) error
+	}{
+		{name: "api", shutdown: func(stack *Stack) error { return (&apiRuntime{resources: stack}).Shutdown(context.Background()) }},
+		{name: "worker", shutdown: func(stack *Stack) error { return (&workerRuntime{resources: stack}).Shutdown(context.Background()) }},
+		{name: "scheduler", shutdown: func(stack *Stack) error { return (&schedulerRuntime{resources: stack}).Shutdown(context.Background()) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			closed := false
+			stack := NewStack()
+			stack.Add(closeFunc(func(context.Context) error {
+				closed = true
+				return nil
+			}))
+			if err := test.shutdown(stack); err != nil {
+				t.Fatalf("Shutdown() error = %v", err)
+			}
+			if !closed {
+				t.Fatal("resource stack was not closed")
+			}
+		})
+	}
+}

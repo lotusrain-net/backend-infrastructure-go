@@ -95,7 +95,13 @@ func (s *RefreshStore) Lookup(ctx context.Context, raw string) (string, error) {
 		return "", ErrInvalidRefreshToken
 	}
 	userID, err := s.cache.Get(ctx, s.tokenKey(raw))
-	if err != nil || userID == "" {
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", ErrInvalidRefreshToken
+		}
+		return "", fmt.Errorf("lookup refresh token: %w", err)
+	}
+	if userID == "" {
 		return "", ErrInvalidRefreshToken
 	}
 	return userID, nil

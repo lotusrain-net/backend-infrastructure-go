@@ -19,7 +19,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/worker ./cmd/worker && \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/scheduler ./cmd/scheduler && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/seed-admin ./cmd/seed-admin
 
 FROM scratch
 
@@ -30,6 +31,7 @@ COPY --from=build --chown=10001:10001 /out/api /app/api
 COPY --from=build --chown=10001:10001 /out/worker /app/worker
 COPY --from=build --chown=10001:10001 /out/scheduler /app/scheduler
 COPY --from=build --chown=10001:10001 /out/migrate /app/migrate
+COPY --from=build --chown=10001:10001 /out/seed-admin /app/seed-admin
 COPY --chown=10001:10001 db/migrations/*.sql /app/migrations/
 
 USER 10001:10001

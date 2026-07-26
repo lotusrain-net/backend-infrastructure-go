@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	taskmodule "backend-infrastructure-go/internal/modules/task"
@@ -49,7 +50,10 @@ func (publisher *AsynqPublisher) Publish(ctx context.Context, message taskmodule
 		enqueueOptions = append(enqueueOptions, asynq.ProcessIn(options.ProcessAfter))
 	}
 	_, err = publisher.client.EnqueueContext(ctx, asynq.NewTask(message.TaskType, payload), enqueueOptions...)
-	if errors.Is(err, asynq.ErrDuplicateTask) || errors.Is(err, asynq.ErrTaskIDConflict) {
+	if errors.Is(err, asynq.ErrTaskIDConflict) {
+		return nil
+	}
+	if errors.Is(err, asynq.ErrDuplicateTask) {
 		return fmt.Errorf("%w: %s", taskmodule.ErrDuplicateSubmission, options.QueueID)
 	}
 	if err != nil {
@@ -81,6 +85,9 @@ func (handler *AsynqHandler) ProcessTask(ctx context.Context, queuedTask *asynq.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return errors.Join(err, asynq.RevokeTask)
 		}
+		if errors.Is(err, taskmodule.ErrExecutionConflict) {
+			return errors.Join(err, asynq.RevokeTask)
+		}
 		return err
 	}
 	return nil
@@ -88,10 +95,15 @@ func (handler *AsynqHandler) ProcessTask(ctx context.Context, queuedTask *asynq.
 
 type FailureHandler struct {
 	processor Processor
+	logger    *slog.Logger
 }
 
-func NewFailureHandler(processor Processor) *FailureHandler {
-	return &FailureHandler{processor: processor}
+func NewFailureHandler(processor Processor, loggers ...*slog.Logger) *FailureHandler {
+	logger := slog.Default()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
+	return &FailureHandler{processor: processor, logger: logger}
 }
 
 func (handler *FailureHandler) HandleError(ctx context.Context, queuedTask *asynq.Task, processingErr error) {
@@ -107,7 +119,9 @@ func (handler *FailureHandler) HandleError(ctx context.Context, queuedTask *asyn
 	}
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	_ = handler.HandleExhausted(updateCtx, queuedTask, processingErr, retryCount, maxRetry)
+	if err := handler.HandleExhausted(updateCtx, queuedTask, processingErr, retryCount, maxRetry); err != nil {
+		handler.logger.ErrorContext(updateCtx, "task failure sync failed", "task_type", queuedTask.Type(), "error", err)
+	}
 }
 
 func (handler *FailureHandler) HandleExhausted(
@@ -125,6 +139,38 @@ func (handler *FailureHandler) HandleExhausted(
 		return err
 	}
 	return handler.processor.Fail(ctx, message, retryCount+1, processingErr)
+}
+
+type PendingPublishStore interface {
+	ListPendingPublishes(context.Context, int) ([]taskmodule.PendingPublish, error)
+	MarkPublishSucceeded(context.Context, string) error
+}
+
+type OutboxDispatcher struct {
+	store     PendingPublishStore
+	publisher taskmodule.Publisher
+}
+
+func NewOutboxDispatcher(store PendingPublishStore, publisher taskmodule.Publisher) *OutboxDispatcher {
+	return &OutboxDispatcher{store: store, publisher: publisher}
+}
+
+func (dispatcher *OutboxDispatcher) DispatchPending(ctx context.Context, limit int) error {
+	pending, err := dispatcher.store.ListPendingPublishes(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("list pending task publishes: %w", err)
+	}
+	for _, publish := range pending {
+		if publish.ExecutionStatus == taskmodule.StatusQueued {
+			if err := dispatcher.publisher.Publish(ctx, publish.Message, publish.Options); err != nil {
+				return fmt.Errorf("publish queued task %s: %w", publish.Options.QueueID, err)
+			}
+		}
+		if err := dispatcher.store.MarkPublishSucceeded(ctx, publish.Options.QueueID); err != nil {
+			return fmt.Errorf("mark queued task %s published: %w", publish.Options.QueueID, err)
+		}
+	}
+	return nil
 }
 
 func decodeMessage(queuedTask *asynq.Task) (taskmodule.Message, error) {

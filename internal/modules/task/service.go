@@ -12,6 +12,15 @@ var (
 	ErrDuplicateSubmission = errors.New("duplicate task submission")
 	ErrDefinitionNotFound  = errors.New("task definition not found")
 	ErrExecutionNotFound   = errors.New("task execution not found")
+	ErrExecutionConflict   = errors.New("task execution state conflict")
+	ErrInvalidSubmission   = errors.New("invalid task submission")
+)
+
+const (
+	MaxSubmissionRetries      = 25
+	MaxSubmissionTimeout      = 24 * time.Hour
+	MaxSubmissionUniqueFor    = 7 * 24 * time.Hour
+	MaxSubmissionProcessAfter = 30 * 24 * time.Hour
 )
 
 type NewExecution struct {
@@ -23,19 +32,34 @@ type NewExecution struct {
 }
 
 type ExecutionUpdate struct {
-	ID            string
-	Status        Status
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	ErrorSummary  string
-	ProcessedRows int64
-	Attempt       int
+	ID              string
+	Status          Status
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	ErrorSummary    string
+	ProcessedRows   int64
+	Attempt         int
+	ExpectedStatus  Status
+	ExpectedAttempt int
 }
 
 type ExecutionStore interface {
 	CreateExecution(context.Context, NewExecution) (Execution, error)
 	GetExecution(context.Context, string) (Execution, error)
+	ClaimExecution(context.Context, string, int, time.Time) error
 	UpdateExecution(context.Context, ExecutionUpdate) error
+}
+
+type PendingPublish struct {
+	ExecutionStatus Status
+	Message         Message
+	Options         PublishOptions
+}
+
+type OutboxStore interface {
+	CreateExecutionWithPendingPublish(context.Context, NewExecution, Message, PublishOptions) (Execution, error)
+	ListPendingPublishes(context.Context, int) ([]PendingPublish, error)
+	MarkPublishSucceeded(context.Context, string) error
 }
 
 type Publisher interface {
@@ -64,18 +88,18 @@ func NewSubmissionService(store ExecutionStore, publisher Publisher, newID func(
 }
 
 func (service *SubmissionService) Submit(ctx context.Context, submission Submission) (Execution, error) {
+	if err := ValidateSubmission(submission); err != nil {
+		return Execution{}, err
+	}
 	queueID := service.newID()
-	execution, err := service.store.CreateExecution(ctx, NewExecution{
+	newExecution := NewExecution{
 		DefinitionID:   submission.DefinitionID,
 		TaskType:       submission.TaskType,
 		QueueID:        queueID,
 		IdempotencyKey: submission.IdempotencyKey,
 		Payload:        submission.Payload,
-	})
-	if err != nil {
-		return Execution{}, err
 	}
-	message := Message{ExecutionID: execution.ID, TaskType: submission.TaskType, Payload: submission.Payload}
+	message := Message{TaskType: submission.TaskType, Payload: submission.Payload}
 	options := PublishOptions{
 		QueueID:      queueID,
 		MaxRetries:   submission.MaxRetries,
@@ -83,6 +107,30 @@ func (service *SubmissionService) Submit(ctx context.Context, submission Submiss
 		UniqueFor:    submission.UniqueFor,
 		ProcessAfter: submission.ProcessAfter,
 	}
+	if outboxStore, ok := service.store.(OutboxStore); ok {
+		execution, err := outboxStore.CreateExecutionWithPendingPublish(ctx, newExecution, Message{
+			TaskType: submission.TaskType,
+			Payload:  submission.Payload,
+		}, options)
+		if err != nil {
+			return Execution{}, err
+		}
+		message.ExecutionID = execution.ID
+		if service.publisher != nil {
+			if err := service.publisher.Publish(ctx, message, options); err == nil {
+				publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				_ = outboxStore.MarkPublishSucceeded(publishCtx, queueID)
+			}
+		}
+		return execution, nil
+	}
+
+	execution, err := service.store.CreateExecution(ctx, newExecution)
+	if err != nil {
+		return Execution{}, err
+	}
+	message.ExecutionID = execution.ID
 	if err := service.publisher.Publish(ctx, message, options); err != nil {
 		if transitionErr := ValidateTransition(execution.Status, StatusFailed); transitionErr != nil {
 			return Execution{}, errors.Join(fmt.Errorf("publish task: %w", err), transitionErr)
@@ -91,10 +139,12 @@ func (service *SubmissionService) Submit(ctx context.Context, submission Submiss
 		updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if updateErr := service.store.UpdateExecution(updateCtx, ExecutionUpdate{
-			ID:           execution.ID,
-			Status:       StatusFailed,
-			FinishedAt:   &finishedAt,
-			ErrorSummary: err.Error(),
+			ID:              execution.ID,
+			Status:          StatusFailed,
+			FinishedAt:      &finishedAt,
+			ErrorSummary:    err.Error(),
+			ExpectedStatus:  execution.Status,
+			ExpectedAttempt: execution.Attempt,
 		}); updateErr != nil {
 			return Execution{}, errors.Join(fmt.Errorf("publish task: %w", err), fmt.Errorf("mark task failed: %w", updateErr))
 		}
@@ -131,13 +181,8 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 		return err
 	}
 	startedAt := processor.now()
-	if err := processor.store.UpdateExecution(ctx, ExecutionUpdate{
-		ID:        message.ExecutionID,
-		Status:    StatusRunning,
-		StartedAt: &startedAt,
-		Attempt:   attempt,
-	}); err != nil {
-		return fmt.Errorf("mark task running: %w", err)
+	if err := processor.store.ClaimExecution(ctx, message.ExecutionID, attempt, startedAt); err != nil {
+		return fmt.Errorf("claim task execution: %w", err)
 	}
 	processor.observe(message.TaskType, StatusRunning, 0)
 
@@ -152,11 +197,13 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 			updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
 			if updateErr := processor.store.UpdateExecution(updateCtx, ExecutionUpdate{
-				ID:           message.ExecutionID,
-				Status:       StatusCancelled,
-				FinishedAt:   &finishedAt,
-				ErrorSummary: err.Error(),
-				Attempt:      attempt,
+				ID:              message.ExecutionID,
+				Status:          StatusCancelled,
+				FinishedAt:      &finishedAt,
+				ErrorSummary:    err.Error(),
+				Attempt:         attempt,
+				ExpectedStatus:  StatusRunning,
+				ExpectedAttempt: attempt,
 			}); updateErr != nil {
 				return errors.Join(err, fmt.Errorf("mark task cancelled: %w", updateErr))
 			}
@@ -167,12 +214,14 @@ func (processor *Processor) Process(ctx context.Context, message Message, attemp
 
 	finishedAt := processor.now()
 	if err := processor.store.UpdateExecution(ctx, ExecutionUpdate{
-		ID:            message.ExecutionID,
-		Status:        StatusSucceeded,
-		StartedAt:     &startedAt,
-		FinishedAt:    &finishedAt,
-		ProcessedRows: result.ProcessedRows,
-		Attempt:       attempt,
+		ID:              message.ExecutionID,
+		Status:          StatusSucceeded,
+		StartedAt:       &startedAt,
+		FinishedAt:      &finishedAt,
+		ProcessedRows:   result.ProcessedRows,
+		Attempt:         attempt,
+		ExpectedStatus:  StatusRunning,
+		ExpectedAttempt: attempt,
 	}); err != nil {
 		return fmt.Errorf("mark task succeeded: %w", err)
 	}
@@ -190,11 +239,13 @@ func (processor *Processor) Fail(ctx context.Context, message Message, attempt i
 	}
 	finishedAt := processor.now()
 	if err := processor.store.UpdateExecution(ctx, ExecutionUpdate{
-		ID:           message.ExecutionID,
-		Status:       StatusFailed,
-		FinishedAt:   &finishedAt,
-		ErrorSummary: cause.Error(),
-		Attempt:      attempt,
+		ID:              message.ExecutionID,
+		Status:          StatusFailed,
+		FinishedAt:      &finishedAt,
+		ErrorSummary:    cause.Error(),
+		Attempt:         attempt,
+		ExpectedStatus:  StatusRunning,
+		ExpectedAttempt: attempt,
 	}); err != nil {
 		return fmt.Errorf("mark task failed: %w", err)
 	}
@@ -209,5 +260,28 @@ func (processor *Processor) Fail(ctx context.Context, message Message, attempt i
 func (processor *Processor) observe(taskType string, status Status, duration time.Duration) {
 	if processor.observer != nil {
 		processor.observer.ObserveTask(taskType, string(status), duration)
+	}
+}
+
+func ValidateSubmission(submission Submission) error {
+	switch {
+	case submission.MaxRetries < 0:
+		return fmt.Errorf("%w: retries must be non-negative", ErrInvalidSubmission)
+	case submission.MaxRetries > MaxSubmissionRetries:
+		return fmt.Errorf("%w: retries exceed %d", ErrInvalidSubmission, MaxSubmissionRetries)
+	case submission.Timeout <= 0:
+		return fmt.Errorf("%w: timeout must be positive", ErrInvalidSubmission)
+	case submission.Timeout > MaxSubmissionTimeout:
+		return fmt.Errorf("%w: timeout exceeds %s", ErrInvalidSubmission, MaxSubmissionTimeout)
+	case submission.UniqueFor < 0:
+		return fmt.Errorf("%w: unique window must be non-negative", ErrInvalidSubmission)
+	case submission.UniqueFor > MaxSubmissionUniqueFor:
+		return fmt.Errorf("%w: unique window exceeds %s", ErrInvalidSubmission, MaxSubmissionUniqueFor)
+	case submission.ProcessAfter < 0:
+		return fmt.Errorf("%w: process-after delay must be non-negative", ErrInvalidSubmission)
+	case submission.ProcessAfter > MaxSubmissionProcessAfter:
+		return fmt.Errorf("%w: process-after delay exceeds %s", ErrInvalidSubmission, MaxSubmissionProcessAfter)
+	default:
+		return nil
 	}
 }

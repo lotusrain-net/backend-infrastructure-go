@@ -26,6 +26,22 @@ func (f failingEvalCache) Eval(context.Context, string, []string, ...any) (any, 
 	return nil, f.err
 }
 
+type failingUsers struct{ err error }
+
+func (f failingUsers) FindByEmail(context.Context, string) (User, error) { return User{}, f.err }
+func (f failingUsers) FindByID(context.Context, string) (User, error)    { return User{}, f.err }
+func (f failingUsers) Create(context.Context, CreateUserInput) (User, error) {
+	return User{}, f.err
+}
+func (f failingUsers) SetActive(context.Context, string, bool) error { return f.err }
+
+type rotateFailureCache struct{ err error }
+
+func (f rotateFailureCache) Get(context.Context, string) (string, error) { return "user-1", nil }
+func (f rotateFailureCache) Eval(context.Context, string, []string, ...any) (any, error) {
+	return nil, f.err
+}
+
 func (p *recordingPasswords) Hash(string) (string, error) { return "hash", nil }
 func (p *recordingPasswords) Verify(_ string, encoded string) (bool, error) {
 	p.verifyCalls++
@@ -38,7 +54,7 @@ func (m *memoryRefreshCache) Get(_ context.Context, key string) (string, error) 
 	defer m.mu.Unlock()
 	v, ok := m.values[key]
 	if !ok {
-		return "", errors.New("missing")
+		return "", ErrNotFound
 	}
 	return v, nil
 }
@@ -76,7 +92,7 @@ func (c *concurrentIssueCache) Get(_ context.Context, key string) (string, error
 		c.mu.Unlock()
 	}
 	if !ok {
-		return "", errors.New("missing")
+		return "", ErrNotFound
 	}
 	return value, nil
 }
@@ -314,6 +330,52 @@ func TestLoginVerifiesDummyHashWhenIdentityDoesNotExist(t *testing.T) {
 	}
 	if passwords.verifyCalls != 1 || passwords.lastHash != dummyPasswordHash {
 		t.Fatalf("Verify calls = %d, hash = %q", passwords.verifyCalls, passwords.lastHash)
+	}
+}
+
+func TestLoginPropagatesRepositoryFailure(t *testing.T) {
+	want := errors.New("postgres unavailable")
+	passwords := &recordingPasswords{}
+	service := NewService(failingUsers{err: want}, nil, passwords, nil, nil)
+
+	_, err := service.Login(context.Background(), "user@example.com", "attempted-password")
+	if !errors.Is(err, want) {
+		t.Fatalf("Login() error = %v, want repository failure", err)
+	}
+	if passwords.verifyCalls != 1 || passwords.lastHash != dummyPasswordHash {
+		t.Fatalf("Verify calls = %d, hash = %q", passwords.verifyCalls, passwords.lastHash)
+	}
+}
+
+func TestRefreshPropagatesDependencyFailures(t *testing.T) {
+	want := errors.New("dependency unavailable")
+	jwt, _ := NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	t.Run("lookup", func(t *testing.T) {
+		service := NewService(&fakeUsers{}, nil, NewPasswordHasher(DefaultArgon2Params()), jwt, NewRefreshStore(failingEvalCache{err: want}, "iam:test", time.Hour))
+		if _, err := service.Refresh(context.Background(), "refresh-token"); !errors.Is(err, want) {
+			t.Fatalf("Refresh() error = %v, want cache failure", err)
+		}
+	})
+	t.Run("user repository", func(t *testing.T) {
+		service := NewService(failingUsers{err: want}, nil, NewPasswordHasher(DefaultArgon2Params()), jwt, NewRefreshStore(rotateFailureCache{}, "iam:test", time.Hour))
+		if _, err := service.Refresh(context.Background(), "refresh-token"); !errors.Is(err, want) {
+			t.Fatalf("Refresh() error = %v, want repository failure", err)
+		}
+	})
+	t.Run("rotation", func(t *testing.T) {
+		users := &fakeUsers{byID: map[string]User{"user-1": {ID: "user-1", Active: true}}}
+		service := NewService(users, nil, NewPasswordHasher(DefaultArgon2Params()), jwt, NewRefreshStore(rotateFailureCache{err: want}, "iam:test", time.Hour))
+		if _, err := service.Refresh(context.Background(), "refresh-token"); !errors.Is(err, want) {
+			t.Fatalf("Refresh() error = %v, want rotation failure", err)
+		}
+	})
+}
+
+func TestCurrentUserPropagatesRepositoryFailure(t *testing.T) {
+	want := errors.New("postgres unavailable")
+	service := NewService(failingUsers{err: want}, nil, nil, nil, nil)
+	if _, err := service.CurrentUser(context.Background(), "user-1"); !errors.Is(err, want) {
+		t.Fatalf("CurrentUser() error = %v, want repository failure", err)
 	}
 }
 

@@ -1,4 +1,4 @@
-package postgres_test
+package auditstore_test
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/audit/postgres"
+	"backend-infrastructure-go/internal/platform/database/auditstore"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 )
 
@@ -41,7 +41,7 @@ func TestIntegrationCreateAndListAuditLog(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	repository := postgres.New(dbgen.New(connection))
+	repository := auditstore.New(dbgen.New(connection))
 	created, err := repository.Create(ctx, audit.NewEvent{
 		RequestID: "integration-request", Action: "administration.user.create", Result: audit.ResultSuccess,
 		ResourceType: "user", Metadata: map[string]any{"source": "integration"},
@@ -60,7 +60,7 @@ func TestIntegrationCreateAndListAuditLog(t *testing.T) {
 	verifyCombinedServerSideFilters(t, connection, repository)
 }
 
-func verifyCombinedServerSideFilters(t *testing.T, connection *pgx.Conn, repository *postgres.Repository) {
+func verifyCombinedServerSideFilters(t *testing.T, connection *pgx.Conn, repository *auditstore.Repository) {
 	t.Helper()
 	ctx := t.Context()
 	actor := "8d3f4a0e-dab4-4af7-bd44-dbf3213c5b66"

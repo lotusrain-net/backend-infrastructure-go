@@ -12,10 +12,12 @@ import (
 
 type Querier interface {
 	AssignUserRole(ctx context.Context, arg AssignUserRoleParams) error
+	ClaimTaskExecution(ctx context.Context, arg ClaimTaskExecutionParams) (int64, error)
 	CountFilteredAuditLogs(ctx context.Context, arg CountFilteredAuditLogsParams) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
 	CreateTaskDefinition(ctx context.Context, arg CreateTaskDefinitionParams) (TaskDefinition, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
+	CreateTaskExecutionWithPendingPublish(ctx context.Context, arg CreateTaskExecutionWithPendingPublishParams) (CreateTaskExecutionWithPendingPublishRow, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteUser(ctx context.Context, id pgtype.UUID) error
 	GetPermissionByName(ctx context.Context, name string) (Permission, error)
@@ -26,11 +28,13 @@ type Querier interface {
 	GrantRolePermission(ctx context.Context, arg GrantRolePermissionParams) error
 	ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTaskSchedulesRow, error)
 	ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error)
+	ListPendingTaskOutboxMessages(ctx context.Context, limit int32) ([]ListPendingTaskOutboxMessagesRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)
 	ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]string, error)
+	MarkTaskOutboxMessagePublished(ctx context.Context, queueID string) error
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) (int64, error)
-	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) error
+	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) (int64, error)
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
 }

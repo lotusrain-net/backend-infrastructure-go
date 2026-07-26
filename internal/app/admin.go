@@ -8,6 +8,7 @@ import (
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type AdminBootstrap struct{ Email, Username, Password string }
@@ -26,6 +27,9 @@ func BootstrapAdmin(ctx context.Context, queries adminQueries, hasher iam.Passwo
 			return fmt.Errorf("hash bootstrap admin password: %w", hashErr)
 		}
 		user, err = queries.CreateUser(ctx, dbgen.CreateUserParams{Email: input.Email, Username: input.Username, PasswordHash: hash, DisplayName: "Administrator"})
+		if isUniqueViolation(err) {
+			user, err = queries.GetUserByEmail(ctx, input.Email)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("load bootstrap admin: %w", err)
@@ -38,4 +42,9 @@ func BootstrapAdmin(ctx context.Context, queries adminQueries, hasher iam.Passwo
 		return fmt.Errorf("assign admin role: %w", err)
 	}
 	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && postgresError.Code == "23505"
 }

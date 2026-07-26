@@ -11,6 +11,26 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimTaskExecution = `-- name: ClaimTaskExecution :execrows
+UPDATE task_executions
+SET status = 'running', started_at = COALESCE(started_at, $3), attempt = $2, updated_at = NOW()
+WHERE id = $1 AND status IN ('queued', 'running') AND attempt < $2
+`
+
+type ClaimTaskExecutionParams struct {
+	ID        pgtype.UUID        `json:"id"`
+	Attempt   int32              `json:"attempt"`
+	StartedAt pgtype.Timestamptz `json:"started_at"`
+}
+
+func (q *Queries) ClaimTaskExecution(ctx context.Context, arg ClaimTaskExecutionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, claimTaskExecution, arg.ID, arg.Attempt, arg.StartedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createTaskDefinition = `-- name: CreateTaskDefinition :one
 INSERT INTO task_definitions (
     name, task_type, description, default_payload, max_retries, timeout_seconds
@@ -75,6 +95,84 @@ func (q *Queries) CreateTaskExecution(ctx context.Context, arg CreateTaskExecuti
 		arg.Payload,
 	)
 	var i TaskExecution
+	err := row.Scan(
+		&i.ID,
+		&i.DefinitionID,
+		&i.TaskType,
+		&i.QueueID,
+		&i.IdempotencyKey,
+		&i.Payload,
+		&i.Status,
+		&i.Attempt,
+		&i.ProcessedRows,
+		&i.ErrorSummary,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createTaskExecutionWithPendingPublish = `-- name: CreateTaskExecutionWithPendingPublish :one
+WITH execution AS (
+    INSERT INTO task_executions (definition_id, task_type, queue_id, idempotency_key, payload)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at
+), outbox AS (
+    INSERT INTO task_outbox_messages (
+        execution_id, queue_id, task_type, payload, max_retries, timeout_seconds, unique_for_seconds, process_after_seconds
+    )
+    SELECT execution.id, $3, $2, $5, $6, $7, $8, $9
+    FROM execution
+)
+SELECT id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at FROM execution
+`
+
+type CreateTaskExecutionWithPendingPublishParams struct {
+	DefinitionID        pgtype.UUID `json:"definition_id"`
+	TaskType            string      `json:"task_type"`
+	QueueID             pgtype.Text `json:"queue_id"`
+	IdempotencyKey      pgtype.Text `json:"idempotency_key"`
+	Payload             []byte      `json:"payload"`
+	MaxRetries          int32       `json:"max_retries"`
+	TimeoutSeconds      int32       `json:"timeout_seconds"`
+	UniqueForSeconds    int32       `json:"unique_for_seconds"`
+	ProcessAfterSeconds int32       `json:"process_after_seconds"`
+}
+
+type CreateTaskExecutionWithPendingPublishRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	DefinitionID   pgtype.UUID        `json:"definition_id"`
+	TaskType       string             `json:"task_type"`
+	QueueID        pgtype.Text        `json:"queue_id"`
+	IdempotencyKey pgtype.Text        `json:"idempotency_key"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	Attempt        int32              `json:"attempt"`
+	ProcessedRows  int64              `json:"processed_rows"`
+	ErrorSummary   pgtype.Text        `json:"error_summary"`
+	QueuedAt       pgtype.Timestamptz `json:"queued_at"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) CreateTaskExecutionWithPendingPublish(ctx context.Context, arg CreateTaskExecutionWithPendingPublishParams) (CreateTaskExecutionWithPendingPublishRow, error) {
+	row := q.db.QueryRow(ctx, createTaskExecutionWithPendingPublish,
+		arg.DefinitionID,
+		arg.TaskType,
+		arg.QueueID,
+		arg.IdempotencyKey,
+		arg.Payload,
+		arg.MaxRetries,
+		arg.TimeoutSeconds,
+		arg.UniqueForSeconds,
+		arg.ProcessAfterSeconds,
+	)
+	var i CreateTaskExecutionWithPendingPublishRow
 	err := row.Scan(
 		&i.ID,
 		&i.DefinitionID,
@@ -179,32 +277,110 @@ func (q *Queries) ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTa
 	return items, nil
 }
 
-const updateTaskExecutionStatus = `-- name: UpdateTaskExecutionStatus :exec
+const listPendingTaskOutboxMessages = `-- name: ListPendingTaskOutboxMessages :many
+SELECT outbox.execution_id, executions.status AS execution_status,
+       outbox.queue_id, outbox.task_type, outbox.payload, outbox.max_retries,
+       outbox.timeout_seconds, outbox.unique_for_seconds, outbox.process_after_seconds
+FROM task_outbox_messages AS outbox
+JOIN task_executions AS executions ON executions.id = outbox.execution_id
+WHERE outbox.published_at IS NULL
+ORDER BY outbox.created_at, outbox.queue_id
+LIMIT $1
+`
+
+type ListPendingTaskOutboxMessagesRow struct {
+	ExecutionID         pgtype.UUID `json:"execution_id"`
+	ExecutionStatus     string      `json:"execution_status"`
+	QueueID             string      `json:"queue_id"`
+	TaskType            string      `json:"task_type"`
+	Payload             []byte      `json:"payload"`
+	MaxRetries          int32       `json:"max_retries"`
+	TimeoutSeconds      int32       `json:"timeout_seconds"`
+	UniqueForSeconds    int32       `json:"unique_for_seconds"`
+	ProcessAfterSeconds int32       `json:"process_after_seconds"`
+}
+
+func (q *Queries) ListPendingTaskOutboxMessages(ctx context.Context, limit int32) ([]ListPendingTaskOutboxMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listPendingTaskOutboxMessages, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPendingTaskOutboxMessagesRow{}
+	for rows.Next() {
+		var i ListPendingTaskOutboxMessagesRow
+		if err := rows.Scan(
+			&i.ExecutionID,
+			&i.ExecutionStatus,
+			&i.QueueID,
+			&i.TaskType,
+			&i.Payload,
+			&i.MaxRetries,
+			&i.TimeoutSeconds,
+			&i.UniqueForSeconds,
+			&i.ProcessAfterSeconds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markTaskOutboxMessagePublished = `-- name: MarkTaskOutboxMessagePublished :exec
+UPDATE task_outbox_messages
+SET published_at = NOW(), updated_at = NOW()
+WHERE queue_id = $1 AND published_at IS NULL
+`
+
+func (q *Queries) MarkTaskOutboxMessagePublished(ctx context.Context, queueID string) error {
+	_, err := q.db.Exec(ctx, markTaskOutboxMessagePublished, queueID)
+	return err
+}
+
+const updateTaskExecutionStatus = `-- name: UpdateTaskExecutionStatus :execrows
 UPDATE task_executions
-SET status = $2, started_at = $3, finished_at = $4, error_summary = $5,
-    processed_rows = $6, attempt = $7, updated_at = NOW()
-WHERE id = $1
+SET status = $1,
+    started_at = COALESCE($2, started_at),
+    finished_at = COALESCE($3, finished_at),
+    error_summary = $4,
+    processed_rows = $5,
+    attempt = $6,
+    updated_at = NOW()
+WHERE id = $7
+  AND status = $8
+  AND attempt = $9
 `
 
 type UpdateTaskExecutionStatusParams struct {
-	ID            pgtype.UUID        `json:"id"`
-	Status        string             `json:"status"`
-	StartedAt     pgtype.Timestamptz `json:"started_at"`
-	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	ErrorSummary  pgtype.Text        `json:"error_summary"`
-	ProcessedRows int64              `json:"processed_rows"`
-	Attempt       int32              `json:"attempt"`
+	Status          string             `json:"status"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+	ErrorSummary    pgtype.Text        `json:"error_summary"`
+	ProcessedRows   int64              `json:"processed_rows"`
+	Attempt         int32              `json:"attempt"`
+	ID              pgtype.UUID        `json:"id"`
+	ExpectedStatus  string             `json:"expected_status"`
+	ExpectedAttempt int32              `json:"expected_attempt"`
 }
 
-func (q *Queries) UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) error {
-	_, err := q.db.Exec(ctx, updateTaskExecutionStatus,
-		arg.ID,
+func (q *Queries) UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateTaskExecutionStatus,
 		arg.Status,
 		arg.StartedAt,
 		arg.FinishedAt,
 		arg.ErrorSummary,
 		arg.ProcessedRows,
 		arg.Attempt,
+		arg.ID,
+		arg.ExpectedStatus,
+		arg.ExpectedAttempt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

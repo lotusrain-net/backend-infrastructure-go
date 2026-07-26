@@ -33,10 +33,18 @@ func (queries *definitionQueriesStub) CreateTaskDefinition(_ context.Context, pa
 }
 
 type executionQueriesStub struct {
-	createErr    error
-	getErr       error
-	createParams dbgen.CreateTaskExecutionParams
-	updateParams dbgen.UpdateTaskExecutionStatusParams
+	createErr        error
+	getErr           error
+	claimErr         error
+	claimRows        int64
+	updateRows       int64
+	createParams     dbgen.CreateTaskExecutionParams
+	createOutbox     dbgen.CreateTaskExecutionWithPendingPublishParams
+	updateParams     dbgen.UpdateTaskExecutionStatusParams
+	claimParams      dbgen.ClaimTaskExecutionParams
+	outboxList       []dbgen.ListPendingTaskOutboxMessagesRow
+	listPendingLimit int32
+	markPublishedID  string
 }
 
 func (queries *executionQueriesStub) CreateTaskExecution(_ context.Context, params dbgen.CreateTaskExecutionParams) (dbgen.TaskExecution, error) {
@@ -46,6 +54,17 @@ func (queries *executionQueriesStub) CreateTaskExecution(_ context.Context, para
 
 func (queries *executionQueriesStub) GetTaskExecution(context.Context, pgtype.UUID) (dbgen.TaskExecution, error) {
 	return dbgen.TaskExecution{ID: testUUID, TaskType: "report.generate", Status: string(taskmodule.StatusRunning)}, queries.getErr
+}
+
+func (queries *executionQueriesStub) ClaimTaskExecution(_ context.Context, params dbgen.ClaimTaskExecutionParams) (int64, error) {
+	queries.claimParams = params
+	if queries.claimErr != nil {
+		return 0, queries.claimErr
+	}
+	if queries.claimRows != 0 {
+		return queries.claimRows, nil
+	}
+	return 1, nil
 }
 
 func TestPostgresExecutionStoreMapsMissingRowToExecutionNotFound(t *testing.T) {
@@ -64,8 +83,26 @@ func TestPostgresExecutionStoreTreatsInvalidIdentifierAsNotFound(t *testing.T) {
 	}
 }
 
-func (queries *executionQueriesStub) UpdateTaskExecutionStatus(_ context.Context, params dbgen.UpdateTaskExecutionStatusParams) error {
+func (queries *executionQueriesStub) UpdateTaskExecutionStatus(_ context.Context, params dbgen.UpdateTaskExecutionStatusParams) (int64, error) {
 	queries.updateParams = params
+	if queries.updateRows != 0 {
+		return queries.updateRows, nil
+	}
+	return 1, nil
+}
+
+func (queries *executionQueriesStub) CreateTaskExecutionWithPendingPublish(_ context.Context, params dbgen.CreateTaskExecutionWithPendingPublishParams) (dbgen.CreateTaskExecutionWithPendingPublishRow, error) {
+	queries.createOutbox = params
+	return dbgen.CreateTaskExecutionWithPendingPublishRow{ID: testUUID, DefinitionID: params.DefinitionID, TaskType: params.TaskType, Status: string(taskmodule.StatusQueued)}, queries.createErr
+}
+
+func (queries *executionQueriesStub) ListPendingTaskOutboxMessages(_ context.Context, limit int32) ([]dbgen.ListPendingTaskOutboxMessagesRow, error) {
+	queries.listPendingLimit = limit
+	return queries.outboxList, nil
+}
+
+func (queries *executionQueriesStub) MarkTaskOutboxMessagePublished(_ context.Context, queueID string) error {
+	queries.markPublishedID = queueID
 	return nil
 }
 
@@ -141,16 +178,87 @@ func TestPostgresExecutionStoreSynchronizesStatusFields(t *testing.T) {
 	finishedAt := time.Unix(201, 0).UTC()
 	if err := store.UpdateExecution(context.Background(), taskmodule.ExecutionUpdate{
 		ID: testUUIDString, Status: taskmodule.StatusSucceeded, StartedAt: &startedAt, FinishedAt: &finishedAt,
-		ProcessedRows: 15, Attempt: 2,
+		ProcessedRows: 15, Attempt: 2, ExpectedStatus: taskmodule.StatusRunning, ExpectedAttempt: 2,
 	}); err != nil {
 		t.Fatalf("UpdateExecution() error = %v", err)
 	}
 	params := queries.updateParams
-	if params.ID != testUUID || params.Status != string(taskmodule.StatusSucceeded) || params.ProcessedRows != 15 || params.Attempt != 2 {
+	if params.ID != testUUID || params.Status != string(taskmodule.StatusSucceeded) || params.ProcessedRows != 15 || params.Attempt != 2 || params.ExpectedStatus != string(taskmodule.StatusRunning) || params.ExpectedAttempt != 2 {
 		t.Fatalf("UpdateTaskExecutionStatus params = %+v", params)
 	}
 	if !params.StartedAt.Valid || !params.FinishedAt.Valid {
 		t.Fatalf("timestamp params = %+v, want valid timestamps", params)
+	}
+}
+
+func TestPostgresExecutionStoreClaimsAttemptWithCAS(t *testing.T) {
+	t.Parallel()
+
+	queries := &executionQueriesStub{}
+	store := NewPostgresExecutionStore(queries)
+	startedAt := time.Unix(200, 0).UTC()
+
+	if err := store.ClaimExecution(context.Background(), testUUIDString, 2, startedAt); err != nil {
+		t.Fatalf("ClaimExecution() error = %v", err)
+	}
+	if queries.claimParams.ID != testUUID || queries.claimParams.Attempt != 2 || !queries.claimParams.StartedAt.Valid {
+		t.Fatalf("ClaimTaskExecution params = %+v", queries.claimParams)
+	}
+}
+
+func TestPostgresExecutionStoreCreatesExecutionWithPendingPublish(t *testing.T) {
+	t.Parallel()
+
+	queries := &executionQueriesStub{}
+	store := NewPostgresExecutionStore(queries)
+
+	execution, err := store.CreateExecutionWithPendingPublish(context.Background(),
+		taskmodule.NewExecution{TaskType: "report.generate", QueueID: "queue-1", Payload: json.RawMessage(`{"report_id":7}`)},
+		taskmodule.Message{ExecutionID: testUUIDString, TaskType: "report.generate", Payload: json.RawMessage(`{"report_id":7}`)},
+		taskmodule.PublishOptions{QueueID: "queue-1", MaxRetries: 3, Timeout: time.Minute, UniqueFor: 2 * time.Minute, ProcessAfter: 30 * time.Second},
+	)
+	if err != nil {
+		t.Fatalf("CreateExecutionWithPendingPublish() error = %v", err)
+	}
+	if execution.ID != testUUIDString {
+		t.Fatalf("execution = %+v", execution)
+	}
+	if queries.createOutbox.QueueID.String != "queue-1" || queries.createOutbox.TaskType != "report.generate" || queries.createOutbox.MaxRetries != 3 || queries.createOutbox.TimeoutSeconds != 60 || queries.createOutbox.UniqueForSeconds != 120 || queries.createOutbox.ProcessAfterSeconds != 30 {
+		t.Fatalf("CreateTaskExecutionWithPendingPublish params = %+v", queries.createOutbox)
+	}
+}
+
+func TestPostgresExecutionStoreListsAndMarksPendingPublishes(t *testing.T) {
+	t.Parallel()
+
+	queries := &executionQueriesStub{outboxList: []dbgen.ListPendingTaskOutboxMessagesRow{{
+		ExecutionID:         testUUID,
+		ExecutionStatus:     string(taskmodule.StatusQueued),
+		QueueID:             "queue-1",
+		TaskType:            "report.generate",
+		Payload:             []byte(`{"report_id":7}`),
+		MaxRetries:          3,
+		TimeoutSeconds:      60,
+		UniqueForSeconds:    120,
+		ProcessAfterSeconds: 30,
+	}}}
+	store := NewPostgresExecutionStore(queries)
+
+	pending, err := store.ListPendingPublishes(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("ListPendingPublishes() error = %v", err)
+	}
+	if queries.listPendingLimit != 10 {
+		t.Fatalf("limit = %d, want 10", queries.listPendingLimit)
+	}
+	if len(pending) != 1 || pending[0].ExecutionStatus != taskmodule.StatusQueued || pending[0].Message.ExecutionID != testUUIDString || pending[0].Options.QueueID != "queue-1" || pending[0].Options.Timeout != time.Minute || pending[0].Options.UniqueFor != 2*time.Minute || pending[0].Options.ProcessAfter != 30*time.Second {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if err := store.MarkPublishSucceeded(context.Background(), "queue-1"); err != nil {
+		t.Fatalf("MarkPublishSucceeded() error = %v", err)
+	}
+	if queries.markPublishedID != "queue-1" {
+		t.Fatalf("markPublishedID = %q", queries.markPublishedID)
 	}
 }
 

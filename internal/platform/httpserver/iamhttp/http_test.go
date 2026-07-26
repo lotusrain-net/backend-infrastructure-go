@@ -1,4 +1,4 @@
-package iam
+package iamhttp
 
 import (
 	"context"
@@ -10,40 +10,43 @@ import (
 	"testing"
 	"time"
 
+	"backend-infrastructure-go/internal/modules/iam"
 	"github.com/go-chi/chi/v5"
 )
 
 type fakeApplication struct {
-	login          TokenPair
-	user           User
+	login          iam.TokenPair
+	user           iam.User
 	authErr        error
 	logoutToken    string
+	loginCalls     int
 	setActiveCalls int
 }
 
-func (f *fakeApplication) Login(context.Context, string, string) (TokenPair, error) {
+func (f *fakeApplication) Login(context.Context, string, string) (iam.TokenPair, error) {
+	f.loginCalls++
 	return f.login, f.authErr
 }
-func (f *fakeApplication) Refresh(context.Context, string) (TokenPair, error) {
+func (f *fakeApplication) Refresh(context.Context, string) (iam.TokenPair, error) {
 	return f.login, f.authErr
 }
 func (f *fakeApplication) Logout(_ context.Context, token string) error {
 	f.logoutToken = token
 	return f.authErr
 }
-func (f *fakeApplication) CurrentUser(context.Context, string) (User, error) {
+func (f *fakeApplication) CurrentUser(context.Context, string) (iam.User, error) {
 	return f.user, f.authErr
 }
-func (f *fakeApplication) CreateUser(context.Context, CreateUserInput) (User, error) {
+func (f *fakeApplication) CreateUser(context.Context, iam.CreateUserInput) (iam.User, error) {
 	return f.user, f.authErr
 }
 func (f *fakeApplication) SetUserActive(context.Context, string, bool) error {
 	f.setActiveCalls++
 	return f.authErr
 }
-func (f *fakeApplication) Roles(context.Context) ([]Role, error) { return []Role{}, f.authErr }
-func (f *fakeApplication) Permissions(context.Context) ([]Permission, error) {
-	return []Permission{}, f.authErr
+func (f *fakeApplication) Roles(context.Context) ([]iam.Role, error) { return []iam.Role{}, f.authErr }
+func (f *fakeApplication) Permissions(context.Context) ([]iam.Permission, error) {
+	return []iam.Permission{}, f.authErr
 }
 func (f *fakeApplication) AssignRole(context.Context, string, string) error      { return f.authErr }
 func (f *fakeApplication) GrantPermission(context.Context, string, string) error { return f.authErr }
@@ -72,7 +75,7 @@ func TestLoginAndRefreshSetSecureCookiesWithoutExposingRefreshToken(t *testing.T
 		{name: "refresh", path: "/api/v1/auth/refresh", body: `{"refresh_token":"old-refresh"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			app := &fakeApplication{login: TokenPair{AccessToken: "access", RefreshToken: "refresh", TokenType: "Bearer", ExpiresIn: 60}}
+			app := &fakeApplication{login: iam.TokenPair{AccessToken: "access", RefreshToken: "refresh", TokenType: "Bearer", ExpiresIn: 60}}
 			router := chi.NewRouter()
 			RegisterRoutes(router, app, nil, HTTPConfig{SecureCookies: true, RefreshTTL: 24 * time.Hour})
 			req := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
@@ -151,8 +154,8 @@ func TestSetUserActiveRequiresExplicitBoolean(t *testing.T) {
 }
 
 func TestMeRejectsTamperedTokenAndInactiveUser(t *testing.T) {
-	jwt, _ := NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
-	app := &fakeApplication{authErr: ErrInactiveUser}
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	app := &fakeApplication{authErr: iam.ErrInactiveUser}
 	router := chi.NewRouter()
 	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
@@ -173,9 +176,9 @@ func TestMeRejectsTamperedTokenAndInactiveUser(t *testing.T) {
 }
 
 func TestPermissionMiddlewareDeniesMissingPermission(t *testing.T) {
-	jwt, _ := NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
 	raw, _ := jwt.Issue("u1")
-	app := &fakeApplication{authErr: ErrPermissionDenied}
+	app := &fakeApplication{authErr: iam.ErrPermissionDenied}
 	router := chi.NewRouter()
 	router.With(Authenticate(jwt), RequirePermission(app, "users:write")).Get("/protected", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
@@ -195,16 +198,16 @@ func TestExtractAccessTokenRejectsMalformedAuthorization(t *testing.T) {
 	for _, value := range []string{"Basic abc", "Bearer", "Bearer one two"} {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
 		r.Header.Set("Authorization", value)
-		if _, err := ExtractAccessToken(r); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := ExtractAccessToken(r); !errors.Is(err, iam.ErrInvalidCredentials) {
 			t.Fatalf("%q err=%v", value, err)
 		}
 	}
 }
 
 func TestAuthenticatedManagementRoutes(t *testing.T) {
-	jwt, _ := NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
 	raw, _ := jwt.Issue("u1")
-	app := &fakeApplication{user: User{ID: "u1", Active: true}}
+	app := &fakeApplication{user: iam.User{ID: "u1", Active: true}}
 	router := chi.NewRouter()
 	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
 	tests := []struct {
@@ -233,7 +236,7 @@ func TestAuthenticatedManagementRoutes(t *testing.T) {
 }
 
 func TestCreateUserRejectsPasswordsBelowServiceMinimumWithout500(t *testing.T) {
-	service := newTestAuth(t, &fakeUsers{})
+	service := newTestAuthService(t)
 	for _, password := range []string{"12345678", "12345678901"} {
 		t.Run(password, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"email":"a@example.com","username":"alice","password":"`+password+`"}`))
@@ -244,4 +247,54 @@ func TestCreateUserRejectsPasswordsBelowServiceMinimumWithout500(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoginRejectsBodyLargerThanOneMiBIncludingTrailingWhitespace(t *testing.T) {
+	app := &fakeApplication{}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, nil, HTTPConfig{RefreshTTL: time.Hour})
+	body := `{"email":"a@example.com","password":"password"}` + strings.Repeat(" ", (1<<20)-len(`{"email":"a@example.com","password":"password"}`)+1)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if app.loginCalls != 0 {
+		t.Fatalf("Login() calls = %d", app.loginCalls)
+	}
+}
+
+type fakeUsers struct{}
+
+func (f *fakeUsers) FindByEmail(context.Context, string) (iam.User, error) {
+	return iam.User{}, iam.ErrNotFound
+}
+func (f *fakeUsers) FindByID(context.Context, string) (iam.User, error) {
+	return iam.User{}, iam.ErrNotFound
+}
+func (f *fakeUsers) Create(_ context.Context, input iam.CreateUserInput) (iam.User, error) {
+	return iam.User{ID: "new", Email: input.Email, Username: input.Username, Active: true}, nil
+}
+func (f *fakeUsers) SetActive(context.Context, string, bool) error { return nil }
+
+func newTestAuthService(t *testing.T) *iam.Service {
+	t.Helper()
+	jwt, err := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return iam.NewService(&fakeUsers{}, nil, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, iam.NewRefreshStore(memoryRefreshCache{}, "iam:test", time.Hour))
+}
+
+type memoryRefreshCache struct{}
+
+func (cache memoryRefreshCache) Get(context.Context, string) (string, error) {
+	return "", iam.ErrInvalidRefreshToken
+}
+
+func (cache memoryRefreshCache) Eval(context.Context, string, []string, ...any) (any, error) {
+	return "ok", nil
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/audit/requestmeta"
+	"backend-infrastructure-go/internal/platform/httpserver/requestmeta"
 )
 
 func TestMiddlewareInjectsTrustedRequestMetadataIntoContext(t *testing.T) {

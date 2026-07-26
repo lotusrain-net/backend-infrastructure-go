@@ -10,6 +10,7 @@ import (
 
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/httpserver"
+	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 )
 
 const contractUserID = "00112233-4455-6677-8899-aabbccddeeff"
@@ -95,6 +96,6 @@ func newContractHarness(t *testing.T) contractHarness {
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}
-	iam.RegisterRoutes(router, application, jwt, iam.HTTPConfig{SecureCookies: true, RefreshTTL: time.Hour})
+	iamhttp.RegisterRoutes(router, application, jwt, iamhttp.HTTPConfig{SecureCookies: true, RefreshTTL: time.Hour})
 	return contractHarness{handler: router, accessToken: accessToken}
 }
