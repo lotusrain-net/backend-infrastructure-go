@@ -29,12 +29,14 @@ type taskSubmitter interface {
 }
 type taskReader interface {
 	GetExecution(context.Context, string) (taskmodule.Execution, error)
+	ListExecutions(context.Context, taskmodule.ExecutionQuery) (pagination.Page[taskmodule.Execution], error)
 }
 type taskObserver interface {
 	ObserveTask(taskType, status string, duration time.Duration)
 }
 type taskCatalog interface {
 	Contains(taskType string) bool
+	Types() []string
 }
 type PlatformRoutes struct {
 	IAM          iam.Application
@@ -56,7 +58,9 @@ func RegisterPlatformRoutes(router chi.Router, deps PlatformRoutes) {
 		r.Use(iamhttp.Authenticate(deps.JWT))
 		r.With(iamhttp.RequirePermission(deps.IAM, "audit:read")).Get("/api/v1/audit-logs", handler.auditLogs)
 		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:write")).Post("/api/v1/task-executions", handler.submitTask)
+		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:read")).Get("/api/v1/task-executions", handler.listExecutions)
 		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:read")).Get("/api/v1/task-executions/{executionID}", handler.getExecution)
+		r.With(iamhttp.RequirePermission(deps.IAM, "tasks:read")).Get("/api/v1/task-types", handler.listTaskTypes)
 	})
 }
 
@@ -153,6 +157,28 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusAccepted, execution)
 }
 
+func (h platformHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
+	query := taskmodule.ExecutionQuery{
+		Filter: taskmodule.ExecutionFilter{TaskType: r.URL.Query().Get("task_type")},
+		Page:   queryInt(r, "page", 1),
+		Size:   queryInt(r, "size", pagination.DefaultSize),
+	}
+	if value := r.URL.Query().Get("status"); value != "" {
+		status, ok := taskmodule.ParseStatus(value)
+		if !ok {
+			response.WriteError(w, apperror.Validation(map[string]string{"status": "must be one of queued, running, succeeded, failed, cancelled"}))
+			return
+		}
+		query.Filter.Status = status
+	}
+	items, err := h.deps.Executions.ListExecutions(r.Context(), query)
+	if err != nil {
+		response.WriteError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, items)
+}
+
 func optionalString(raw json.RawMessage, field string, validationErrors map[string]string) string {
 	if len(raw) == 0 {
 		return ""
@@ -192,6 +218,17 @@ func (h platformHandler) getExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.Write(w, http.StatusOK, execution)
+}
+
+func (h platformHandler) listTaskTypes(w http.ResponseWriter, _ *http.Request) {
+	type taskTypeResponse struct {
+		TaskType string `json:"task_type"`
+	}
+	items := make([]taskTypeResponse, 0, len(h.deps.TaskCatalog.Types()))
+	for _, taskType := range h.deps.TaskCatalog.Types() {
+		items = append(items, taskTypeResponse{TaskType: taskType})
+	}
+	response.Write(w, http.StatusOK, items)
 }
 func (h platformHandler) audit(ctx context.Context, action, resourceType, resourceID string, primary error) {
 	if h.deps.Recorder == nil {

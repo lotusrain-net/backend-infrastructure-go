@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"backend-infrastructure-go/internal/app"
 	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"github.com/getkin/kin-openapi/openapi3"
 )
@@ -62,6 +61,7 @@ func TestOpenAPIContainsImplementedCoreOperations(t *testing.T) {
 		{http.MethodPost, "/api/v1/auth/refresh", true},
 		{http.MethodPost, "/api/v1/auth/logout", true},
 		{http.MethodGet, "/api/v1/users/me", false},
+		{http.MethodGet, "/api/v1/users", false},
 		{http.MethodPost, "/api/v1/users", false},
 		{http.MethodPatch, "/api/v1/users/{userID}/active", false},
 		{http.MethodGet, "/api/v1/roles", false},
@@ -69,8 +69,10 @@ func TestOpenAPIContainsImplementedCoreOperations(t *testing.T) {
 		{http.MethodPost, "/api/v1/users/{userID}/roles/{roleID}", false},
 		{http.MethodPost, "/api/v1/roles/{roleID}/permissions/{permissionID}", false},
 		{http.MethodGet, "/api/v1/audit-logs", false},
+		{http.MethodGet, "/api/v1/task-executions", false},
 		{http.MethodPost, "/api/v1/task-executions", false},
 		{http.MethodGet, "/api/v1/task-executions/{executionID}", false},
+		{http.MethodGet, "/api/v1/task-types", false},
 	}
 
 	for _, test := range tests {
@@ -121,8 +123,8 @@ func TestOpenAPIProvidesSecuritySchemesAndCoreSchemas(t *testing.T) {
 		}
 	}
 	for _, schema := range []string{
-		"LoginRequest", "RefreshRequest", "TokenPair", "User", "Role", "Permission",
-		"AuditEvent", "TaskSubmissionRequest", "TaskExecution",
+		"LoginRequest", "RefreshRequest", "TokenPair", "User", "AuthenticatedUser", "AuthenticatedUserEnvelope", "Role", "Permission",
+		"AuditEvent", "TaskSubmissionRequest", "TaskExecution", "TaskTypeRef",
 	} {
 		if document.Components.Schemas[schema] == nil {
 			t.Errorf("schema %s is missing", schema)
@@ -142,14 +144,14 @@ func TestTaskSubmissionSchemaMatchesHTTPContract(t *testing.T) {
 		}
 	}
 	taskType := schema.Properties["task_type"].Value
-	wantTaskTypes := app.RuntimeTaskTypes()
-	if taskType == nil || len(taskType.Enum) != len(wantTaskTypes) {
-		t.Fatalf("task_type enum = %v, want %v", taskType.Enum, wantTaskTypes)
+	if taskType == nil || taskType.Type == nil || !taskType.Type.Is("string") {
+		t.Fatalf("task_type schema = %+v, want string", taskType)
 	}
-	for index, want := range wantTaskTypes {
-		if taskType.Enum[index] != want {
-			t.Fatalf("task_type enum = %v, want %v", taskType.Enum, wantTaskTypes)
-		}
+	if len(taskType.Enum) != 0 {
+		t.Fatalf("task_type enum = %v, want no static enum for runtime-discovered task types", taskType.Enum)
+	}
+	if !strings.Contains(taskType.Description, "/api/v1/task-types") {
+		t.Fatalf("task_type description = %q, want runtime catalog reference", taskType.Description)
 	}
 	defaults := map[string]float64{"max_retries": 3, "timeout_seconds": 300, "unique_for_seconds": 0, "process_after_seconds": 0}
 	for name, want := range defaults {
@@ -186,8 +188,10 @@ func TestValidationResponsesUseRuntimeStatus(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/v1/auth/login"},
+		{http.MethodGet, "/api/v1/users"},
 		{http.MethodPost, "/api/v1/users"},
 		{http.MethodPatch, "/api/v1/users/{userID}/active"},
+		{http.MethodGet, "/api/v1/task-executions"},
 		{http.MethodPost, "/api/v1/task-executions"},
 	} {
 		operation := operationAt(t, document, endpoint.method, endpoint.path)
@@ -200,6 +204,27 @@ func TestValidationResponsesUseRuntimeStatus(t *testing.T) {
 	}
 }
 
+func TestReadCollectionEndpointsDocumentFilterParameters(t *testing.T) {
+	document := loadOpenAPI(t)
+
+	users := operationAt(t, document, http.MethodGet, "/api/v1/users")
+	if len(users.Parameters) != 4 {
+		t.Fatalf("GET /api/v1/users parameters = %d, want 4", len(users.Parameters))
+	}
+	if schema := users.Parameters[3].Value.Schema.Value; schema == nil || schema.Type == nil || !schema.Type.Is("boolean") {
+		t.Fatalf("GET /api/v1/users is_active schema = %+v", schema)
+	}
+
+	executions := operationAt(t, document, http.MethodGet, "/api/v1/task-executions")
+	if len(executions.Parameters) != 4 {
+		t.Fatalf("GET /api/v1/task-executions parameters = %d, want 4", len(executions.Parameters))
+	}
+	status := executions.Parameters[3].Value.Schema.Value
+	if status == nil || len(status.Enum) != 5 {
+		t.Fatalf("GET /api/v1/task-executions status schema = %+v", status)
+	}
+}
+
 func TestCreateUserPasswordMinimumMatchesIAMContract(t *testing.T) {
 	document := loadOpenAPI(t)
 	schema := document.Components.Schemas["CreateUserRequest"].Value
@@ -208,6 +233,34 @@ func TestCreateUserPasswordMinimumMatchesIAMContract(t *testing.T) {
 	}
 	if got := schema.Properties["password"].Value.MinLength; got != 12 {
 		t.Fatalf("CreateUserRequest.password minLength = %d, want 12", got)
+	}
+}
+
+func TestAuthenticatedUserSchemaCarriesPermissionsWithoutPollutingBaseUser(t *testing.T) {
+	document := loadOpenAPI(t)
+	userSchema := document.Components.Schemas["User"].Value
+	if userSchema == nil {
+		t.Fatal("User schema is missing")
+	}
+	if userSchema.Properties["permissions"] != nil {
+		t.Fatal("User schema must not include caller-specific permissions")
+	}
+	schema := document.Components.Schemas["AuthenticatedUser"].Value
+	if schema == nil || len(schema.AllOf) != 2 {
+		t.Fatalf("AuthenticatedUser schema = %+v", schema)
+	}
+	permissions := schema.AllOf[1].Value.Properties["permissions"].Value
+	if permissions.Type == nil || !permissions.Type.Is("array") || permissions.Items == nil || permissions.Items.Value == nil || permissions.Items.Value.Type == nil || !permissions.Items.Value.Type.Is("string") {
+		t.Fatalf("AuthenticatedUser.permissions schema = %+v", permissions)
+	}
+	operation := operationAt(t, document, http.MethodGet, "/api/v1/users/me")
+	response := operation.Responses.Value("200")
+	if response == nil || response.Value == nil {
+		t.Fatal("GET /api/v1/users/me 200 response is missing")
+	}
+	schemaRef := response.Value.Content["application/json"].Schema.Ref
+	if schemaRef != "#/components/schemas/AuthenticatedUserEnvelope" {
+		t.Fatalf("GET /api/v1/users/me schema = %q", schemaRef)
 	}
 }
 

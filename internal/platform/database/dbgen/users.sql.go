@@ -17,6 +17,27 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
 `
 
+const countUsers = `-- name: CountUsers :one
+SELECT count(*) FROM users
+WHERE ($1::text IS NULL
+    OR email ILIKE '%' || $1 || '%'
+    OR username ILIKE '%' || $1 || '%'
+    OR display_name ILIKE '%' || $1 || '%')
+  AND ($2::boolean IS NULL OR is_active = $2)
+`
+
+type CountUsersParams struct {
+	Query  pgtype.Text `json:"query"`
+	Active pgtype.Bool `json:"active"`
+}
+
+func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers, arg.Query, arg.Active)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 type CreateUserParams struct {
 	Email        string `json:"email"`
 	Username     string `json:"username"`
@@ -92,6 +113,53 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at FROM users
+WHERE ($1::text IS NULL
+    OR email ILIKE '%' || $1 || '%'
+    OR username ILIKE '%' || $1 || '%'
+    OR display_name ILIKE '%' || $1 || '%')
+  AND ($2::boolean IS NULL OR is_active = $2)
+ORDER BY created_at DESC, id DESC
+LIMIT $4 OFFSET $3
+`
+
+type ListUsersParams struct {
+	Query  pgtype.Text `json:"query"`
+	Active pgtype.Bool `json:"active"`
+	Offset int32       `json:"offset"`
+	Limit  int32       `json:"limit"`
+}
+
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.Query, arg.Active, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Username,
+			&i.PasswordHash,
+			&i.DisplayName,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setUserActive = `-- name: SetUserActive :execrows

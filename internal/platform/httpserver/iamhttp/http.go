@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/httpserver"
 	"backend-infrastructure-go/internal/shared/apperror"
+	"backend-infrastructure-go/internal/shared/pagination"
 	"backend-infrastructure-go/internal/shared/response"
 	"github.com/go-chi/chi/v5"
 )
@@ -39,6 +41,7 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 		r.Group(func(r chi.Router) {
 			r.Use(Authenticate(jwt))
 			r.Get("/users/me", h.me)
+			r.With(RequirePermission(app, "users:read")).Get("/users", h.users)
 			r.With(RequirePermission(app, "users:write")).Post("/users", h.createUser)
 			r.With(RequirePermission(app, "users:write")).Patch("/users/{userID}/active", h.setUserActive)
 			r.With(RequirePermission(app, "roles:read")).Get("/roles", h.roles)
@@ -158,6 +161,28 @@ func (h handler) me(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusOK, user)
 }
 
+func (h handler) users(w http.ResponseWriter, r *http.Request) {
+	filter := iam.UserFilter{Query: strings.TrimSpace(r.URL.Query().Get("query"))}
+	if value := r.URL.Query().Get("is_active"); value != "" {
+		active, err := strconv.ParseBool(value)
+		if err != nil {
+			response.WriteError(w, apperror.Validation(map[string]string{"is_active": "must be true or false"}))
+			return
+		}
+		filter.Active = &active
+	}
+	items, err := h.app.Users(r.Context(), iam.UserQuery{
+		Filter: filter,
+		Page:   queryInt(r, "page", 1),
+		Size:   queryInt(r, "size", pagination.DefaultSize),
+	})
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, items)
+}
+
 func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 	var in iam.CreateUserInput
 	if !decode(w, r, &in) {
@@ -268,6 +293,14 @@ func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 		return false
 	}
 	return true
+}
+
+func queryInt(r *http.Request, name string, fallback int) int {
+	value, err := strconv.Atoi(r.URL.Query().Get(name))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func writeIAMError(w http.ResponseWriter, err error) {

@@ -14,6 +14,8 @@ import (
 
 type fakeQueries struct {
 	user        dbgen.User
+	users       []dbgen.User
+	total       int64
 	createErr   error
 	permissions []string
 	setRows     int64
@@ -32,6 +34,12 @@ func (f *fakeQueries) GetUserByID(context.Context, pgtype.UUID) (dbgen.User, err
 		return dbgen.User{}, pgx.ErrNoRows
 	}
 	return f.user, nil
+}
+func (f *fakeQueries) ListUsers(context.Context, dbgen.ListUsersParams) ([]dbgen.User, error) {
+	return f.users, nil
+}
+func (f *fakeQueries) CountUsers(context.Context, dbgen.CountUsersParams) (int64, error) {
+	return f.total, nil
 }
 func (f *fakeQueries) CreateUser(context.Context, dbgen.CreateUserParams) (dbgen.User, error) {
 	return f.user, f.createErr
@@ -118,5 +126,24 @@ func TestStoreNormalPaths(t *testing.T) {
 	}
 	if _, err := store.Permissions(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStoreListsUsersWithTotal(t *testing.T) {
+	var id pgtype.UUID
+	if err := id.Scan("2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a"); err != nil {
+		t.Fatal(err)
+	}
+	store := New(&fakeQueries{
+		users: []dbgen.User{{ID: id, Email: "a@example.com", Username: "alice", IsActive: true}},
+		total: 7,
+	})
+	active := true
+	users, total, err := store.List(context.Background(), iam.UserFilter{Query: "ali", Active: &active}, 5, 10)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(users) != 1 || users[0].ID != "2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a" || total != 7 {
+		t.Fatalf("users=%+v total=%d", users, total)
 	}
 }

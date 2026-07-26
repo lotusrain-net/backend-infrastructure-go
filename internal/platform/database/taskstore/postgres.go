@@ -10,6 +10,7 @@ import (
 
 	taskmodule "backend-infrastructure-go/internal/modules/task"
 	"backend-infrastructure-go/internal/platform/database/dbgen"
+	"backend-infrastructure-go/internal/shared/pagination"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -47,6 +48,8 @@ type ExecutionQueries interface {
 	CreateTaskExecution(context.Context, dbgen.CreateTaskExecutionParams) (dbgen.TaskExecution, error)
 	CreateTaskExecutionWithPendingPublish(context.Context, dbgen.CreateTaskExecutionWithPendingPublishParams) (dbgen.CreateTaskExecutionWithPendingPublishRow, error)
 	GetTaskExecution(context.Context, pgtype.UUID) (dbgen.TaskExecution, error)
+	ListTaskExecutions(context.Context, dbgen.ListTaskExecutionsParams) ([]dbgen.TaskExecution, error)
+	CountTaskExecutions(context.Context, dbgen.CountTaskExecutionsParams) (int64, error)
 	ClaimTaskExecution(context.Context, dbgen.ClaimTaskExecutionParams) (int64, error)
 	UpdateTaskExecutionStatus(context.Context, dbgen.UpdateTaskExecutionStatusParams) (int64, error)
 	ListPendingTaskOutboxMessages(context.Context, int32) ([]dbgen.ListPendingTaskOutboxMessagesRow, error)
@@ -117,6 +120,31 @@ func (store *PostgresExecutionStore) GetExecution(ctx context.Context, id string
 		return taskmodule.Execution{}, err
 	}
 	return executionFromRow(row), nil
+}
+
+func (store *PostgresExecutionStore) ListExecutions(ctx context.Context, query taskmodule.ExecutionQuery) (pagination.Page[taskmodule.Execution], error) {
+	page, size := pagination.Normalize(query.Page, query.Size)
+	rows, err := store.queries.ListTaskExecutions(ctx, dbgen.ListTaskExecutionsParams{
+		TaskType: nullableText(query.Filter.TaskType),
+		Status:   nullableText(string(query.Filter.Status)),
+		Offset:   int32((page - 1) * size),
+		Limit:    int32(size),
+	})
+	if err != nil {
+		return pagination.Page[taskmodule.Execution]{}, err
+	}
+	total, err := store.queries.CountTaskExecutions(ctx, dbgen.CountTaskExecutionsParams{
+		TaskType: nullableText(query.Filter.TaskType),
+		Status:   nullableText(string(query.Filter.Status)),
+	})
+	if err != nil {
+		return pagination.Page[taskmodule.Execution]{}, err
+	}
+	items := make([]taskmodule.Execution, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, executionFromRow(row))
+	}
+	return pagination.New(items, page, size, total), nil
 }
 
 func (store *PostgresExecutionStore) ClaimExecution(ctx context.Context, id string, attempt int, startedAt time.Time) error {

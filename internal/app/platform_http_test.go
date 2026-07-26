@@ -28,14 +28,27 @@ type taskAPIStub struct {
 	submitted  int
 	submission taskmodule.Submission
 	execution  taskmodule.Execution
+	listed     pagination.Page[taskmodule.Execution]
+	query      taskmodule.ExecutionQuery
 	getErr     error
 	submitErr  error
+	listErr    error
 }
 
 type taskObserverStub struct{ taskType, status string }
 
 func (stub *taskObserverStub) ObserveTask(taskType, status string, _ time.Duration) {
 	stub.taskType, stub.status = taskType, status
+}
+
+type permissionRecordingIAMStub struct {
+	iamStub
+	permissions []string
+}
+
+func (stub *permissionRecordingIAMStub) Authorize(_ context.Context, _ string, permission string) error {
+	stub.permissions = append(stub.permissions, permission)
+	return iam.ErrPermissionDenied
 }
 
 func (s *taskAPIStub) Submit(_ context.Context, submission taskmodule.Submission) (taskmodule.Execution, error) {
@@ -93,6 +106,17 @@ func (s *taskAPIStub) GetExecution(context.Context, string) (taskmodule.Executio
 	return taskmodule.Execution{ID: "execution-1", TaskType: taskmodule.SystemTestTaskType, Payload: json.RawMessage(`{}`), Status: taskmodule.StatusQueued}, nil
 }
 
+func (s *taskAPIStub) ListExecutions(_ context.Context, query taskmodule.ExecutionQuery) (pagination.Page[taskmodule.Execution], error) {
+	s.query = query
+	if s.listErr != nil {
+		return pagination.Page[taskmodule.Execution]{}, s.listErr
+	}
+	if s.listed.Items != nil || s.listed.Meta.Size != 0 || s.listed.Meta.Total != 0 {
+		return s.listed, nil
+	}
+	return pagination.New([]taskmodule.Execution{}, 1, 20, 0), nil
+}
+
 func TestPlatformRoutesUseAuthenticationRBACAndSharedEndpoints(t *testing.T) {
 	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
 	token, _ := jwt.Issue("user-1")
@@ -103,7 +127,7 @@ func TestPlatformRoutesUseAuthenticationRBACAndSharedEndpoints(t *testing.T) {
 	tests := []struct {
 		method, path, body string
 		want               int
-	}{{http.MethodGet, "/api/v1/audit-logs?request_id=req-1&actor_id=user-1&result=success&resource_id=execution-1", "", http.StatusOK}, {http.MethodPost, "/api/v1/task-executions", `{"task_type":"system.test","payload":{"processed_rows":1}}`, http.StatusAccepted}, {http.MethodGet, "/api/v1/task-executions/execution-1", "", http.StatusOK}}
+	}{{http.MethodGet, "/api/v1/audit-logs?request_id=req-1&actor_id=user-1&result=success&resource_id=execution-1", "", http.StatusOK}, {http.MethodPost, "/api/v1/task-executions", `{"task_type":"system.test","payload":{"processed_rows":1}}`, http.StatusAccepted}, {http.MethodGet, "/api/v1/task-executions", "", http.StatusOK}, {http.MethodGet, "/api/v1/task-executions/execution-1", "", http.StatusOK}, {http.MethodGet, "/api/v1/task-types", "", http.StatusOK}}
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -271,5 +295,98 @@ func TestGetExecutionMapsMissingExecutionToNotFound(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListExecutionsRejectsInvalidStatusAndReturnsPaginatedEnvelope(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tasks := &taskAPIStub{listed: pagination.New([]taskmodule.Execution{{
+		ID: "execution-2", TaskType: "report.generate", Payload: json.RawMessage(`{}`), Status: taskmodule.StatusSucceeded,
+	}}, 2, 5, 6)}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: tasks, Executions: tasks, TaskCatalog: runtimeTaskCatalog})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/task-executions?page=2&size=5&task_type=report.generate&status=succeeded", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if tasks.query.Filter.TaskType != "report.generate" || tasks.query.Filter.Status != taskmodule.StatusSucceeded || tasks.query.Page != 2 || tasks.query.Size != 5 {
+		t.Fatalf("query=%+v", tasks.query)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/task-executions?status=bogus", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListTaskTypesReturnsDeterministicCatalogOrder(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	catalog, err := taskmodule.NewTaskCatalog(
+		taskmodule.TaskRegistration{TaskType: "zeta.task", Handler: taskmodule.SystemTestHandler{}},
+		taskmodule.TaskRegistration{TaskType: "alpha.task", Handler: taskmodule.SystemTestHandler{}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := chi.NewRouter()
+	RegisterPlatformRoutes(router, PlatformRoutes{IAM: iamStub{}, JWT: jwt, Audits: &auditListStub{}, Tasks: &taskAPIStub{}, Executions: &taskAPIStub{}, TaskCatalog: catalog})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/task-types", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Data []struct {
+			TaskType string `json:"task_type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data) != 2 || envelope.Data[0].TaskType != "alpha.task" || envelope.Data[1].TaskType != "zeta.task" {
+		t.Fatalf("task types=%+v", envelope.Data)
+	}
+}
+
+func TestPlatformReadRoutesRequireTasksReadPermission(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	token, _ := jwt.Issue("user-1")
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "executions", path: "/api/v1/task-executions"},
+		{name: "task types", path: "/api/v1/task-types"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := &permissionRecordingIAMStub{}
+			router := chi.NewRouter()
+			RegisterPlatformRoutes(router, PlatformRoutes{IAM: app, JWT: jwt, Audits: &auditListStub{}, Tasks: &taskAPIStub{}, Executions: &taskAPIStub{}})
+
+			req := httptest.NewRequest(http.MethodGet, test.path, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if len(app.permissions) != 1 || app.permissions[0] != "tasks:read" {
+				t.Fatalf("requested permissions=%v", app.permissions)
+			}
+		})
 	}
 }

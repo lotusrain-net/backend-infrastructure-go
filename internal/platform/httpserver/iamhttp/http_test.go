@@ -6,21 +6,28 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"backend-infrastructure-go/internal/modules/iam"
+	"backend-infrastructure-go/internal/shared/pagination"
 	"github.com/go-chi/chi/v5"
 )
 
 type fakeApplication struct {
-	login          iam.TokenPair
-	user           iam.User
-	authErr        error
-	logoutToken    string
-	loginCalls     int
-	setActiveCalls int
+	login                    iam.TokenPair
+	user                     iam.AuthenticatedUser
+	users                    pagination.Page[iam.User]
+	userQuery                iam.UserQuery
+	authorizationPermissions []string
+	authorizationErr         error
+	authErr                  error
+	logoutToken              string
+	loginCalls               int
+	usersCalls               int
+	setActiveCalls           int
 }
 
 func (f *fakeApplication) Login(context.Context, string, string) (iam.TokenPair, error) {
@@ -34,11 +41,16 @@ func (f *fakeApplication) Logout(_ context.Context, token string) error {
 	f.logoutToken = token
 	return f.authErr
 }
-func (f *fakeApplication) CurrentUser(context.Context, string) (iam.User, error) {
+func (f *fakeApplication) CurrentUser(context.Context, string) (iam.AuthenticatedUser, error) {
 	return f.user, f.authErr
 }
+func (f *fakeApplication) Users(_ context.Context, query iam.UserQuery) (pagination.Page[iam.User], error) {
+	f.usersCalls++
+	f.userQuery = query
+	return f.users, f.authErr
+}
 func (f *fakeApplication) CreateUser(context.Context, iam.CreateUserInput) (iam.User, error) {
-	return f.user, f.authErr
+	return f.user.User, f.authErr
 }
 func (f *fakeApplication) SetUserActive(context.Context, string, bool) error {
 	f.setActiveCalls++
@@ -50,7 +62,13 @@ func (f *fakeApplication) Permissions(context.Context) ([]iam.Permission, error)
 }
 func (f *fakeApplication) AssignRole(context.Context, string, string) error      { return f.authErr }
 func (f *fakeApplication) GrantPermission(context.Context, string, string) error { return f.authErr }
-func (f *fakeApplication) Authorize(context.Context, string, string) error       { return f.authErr }
+func (f *fakeApplication) Authorize(_ context.Context, _ string, permission string) error {
+	f.authorizationPermissions = append(f.authorizationPermissions, permission)
+	if f.authorizationErr != nil {
+		return f.authorizationErr
+	}
+	return f.authErr
+}
 
 func TestExtractAccessTokenBearerThenCookie(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -207,7 +225,7 @@ func TestExtractAccessTokenRejectsMalformedAuthorization(t *testing.T) {
 func TestAuthenticatedManagementRoutes(t *testing.T) {
 	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
 	raw, _ := jwt.Issue("u1")
-	app := &fakeApplication{user: iam.User{ID: "u1", Active: true}}
+	app := &fakeApplication{user: iam.AuthenticatedUser{User: iam.User{ID: "u1", Active: true}}}
 	router := chi.NewRouter()
 	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
 	tests := []struct {
@@ -232,6 +250,94 @@ func TestAuthenticatedManagementRoutes(t *testing.T) {
 		if rec.Code != tt.status {
 			t.Errorf("%s %s status=%d body=%s", tt.method, tt.path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestUsersListReturnsPaginatedEnvelopeAndRejectsInvalidBooleanFilter(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	raw, _ := jwt.Issue("u1")
+	app := &fakeApplication{users: pagination.New([]iam.User{{
+		ID: "u1", Email: "alice@example.com", Username: "alice", DisplayName: "Alice", Active: true,
+	}}, 2, 5, 11)}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users?page=2&size=5&query=Ali&is_active=true", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Items []iam.User      `json:"items"`
+			Meta  pagination.Meta `json:"meta"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data.Items) != 1 || envelope.Data.Items[0].PasswordHash != "" {
+		t.Fatalf("items=%+v", envelope.Data.Items)
+	}
+	if strings.Contains(recorder.Body.String(), "\"permissions\"") {
+		t.Fatalf("list response leaked permissions: %s", recorder.Body.String())
+	}
+	if envelope.Data.Meta.Page != 2 || envelope.Data.Meta.Size != 5 || envelope.Data.Meta.Total != 11 {
+		t.Fatalf("meta=%+v", envelope.Data.Meta)
+	}
+	if app.userQuery.Filter.Query != "Ali" || app.userQuery.Filter.Active == nil || !*app.userQuery.Filter.Active || app.userQuery.Page != 2 || app.userQuery.Size != 5 {
+		t.Fatalf("forwarded query=%+v", app.userQuery)
+	}
+
+	bad := httptest.NewRequest(http.MethodGet, "/api/v1/users?is_active=definitely", nil)
+	bad.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, bad)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid bool status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestUsersListRouteIsPartOfAuthenticatedManagementSurface(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	raw, _ := jwt.Issue("u1")
+	app := &fakeApplication{users: pagination.New([]iam.User{}, 1, 20, 0)}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if slices.Contains([]int{http.StatusNotFound, http.StatusMethodNotAllowed}, rec.Code) {
+		t.Fatalf("users list route missing status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUsersListRequiresUsersReadPermission(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	raw, _ := jwt.Issue("u1")
+	app := &fakeApplication{authorizationErr: iam.ErrPermissionDenied}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !slices.Equal(app.authorizationPermissions, []string{"users:read"}) {
+		t.Fatalf("requested permissions=%v", app.authorizationPermissions)
+	}
+	if app.usersCalls != 0 {
+		t.Fatalf("Users() calls=%d", app.usersCalls)
 	}
 }
 
@@ -274,6 +380,9 @@ func (f *fakeUsers) FindByEmail(context.Context, string) (iam.User, error) {
 }
 func (f *fakeUsers) FindByID(context.Context, string) (iam.User, error) {
 	return iam.User{}, iam.ErrNotFound
+}
+func (f *fakeUsers) List(context.Context, iam.UserFilter, int, int) ([]iam.User, int64, error) {
+	return nil, 0, nil
 }
 func (f *fakeUsers) Create(_ context.Context, input iam.CreateUserInput) (iam.User, error) {
 	return iam.User{ID: "new", Email: input.Email, Username: input.Username, Active: true}, nil

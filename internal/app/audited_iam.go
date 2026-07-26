@@ -3,6 +3,7 @@ package app
 import (
 	"backend-infrastructure-go/internal/modules/audit"
 	"backend-infrastructure-go/internal/modules/iam"
+	"backend-infrastructure-go/internal/shared/pagination"
 	"backend-infrastructure-go/internal/shared/requestcontext"
 	"context"
 )
@@ -30,8 +31,11 @@ func (a *auditedIAM) Logout(ctx context.Context, token string) error {
 	err := a.next.Logout(ctx, token)
 	return a.record(ctx, "auth.logout", "session", "", nil, err)
 }
-func (a *auditedIAM) CurrentUser(ctx context.Context, id string) (iam.User, error) {
+func (a *auditedIAM) CurrentUser(ctx context.Context, id string) (iam.AuthenticatedUser, error) {
 	return a.next.CurrentUser(ctx, id)
+}
+func (a *auditedIAM) Users(ctx context.Context, query iam.UserQuery) (pagination.Page[iam.User], error) {
+	return a.next.Users(ctx, query)
 }
 func (a *auditedIAM) CreateUser(ctx context.Context, input iam.CreateUserInput) (iam.User, error) {
 	value, err := a.next.CreateUser(ctx, input)

@@ -14,6 +14,8 @@ type Querier interface {
 	AssignUserRole(ctx context.Context, arg AssignUserRoleParams) error
 	ClaimTaskExecution(ctx context.Context, arg ClaimTaskExecutionParams) (int64, error)
 	CountFilteredAuditLogs(ctx context.Context, arg CountFilteredAuditLogsParams) (int64, error)
+	CountTaskExecutions(ctx context.Context, arg CountTaskExecutionsParams) (int64, error)
+	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
 	CreateTaskDefinition(ctx context.Context, arg CreateTaskDefinitionParams) (TaskDefinition, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
@@ -31,7 +33,9 @@ type Querier interface {
 	ListPendingTaskOutboxMessages(ctx context.Context, limit int32) ([]ListPendingTaskOutboxMessagesRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)
+	ListTaskExecutions(ctx context.Context, arg ListTaskExecutionsParams) ([]TaskExecution, error)
 	ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]string, error)
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	MarkTaskOutboxMessagePublished(ctx context.Context, queueID string) error
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) (int64, error)
 	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) (int64, error)

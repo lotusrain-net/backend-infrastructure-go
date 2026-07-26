@@ -142,7 +142,7 @@ func TestKnownAPIRoutesCoverHealthIAMAdministrationAuditAndTasks(t *testing.T) {
 		"/health/live", "/health/ready", "/metrics", "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
 		"/api/v1/users/me", "/api/v1/users", "/api/v1/users/{userID}/active", "/api/v1/roles", "/api/v1/permissions",
 		"/api/v1/users/{userID}/roles/{roleID}", "/api/v1/roles/{roleID}/permissions/{permissionID}",
-		"/api/v1/audit-logs", "/api/v1/task-executions", "/api/v1/task-executions/{executionID}",
+		"/api/v1/audit-logs", "/api/v1/task-executions", "/api/v1/task-executions/{executionID}", "/api/v1/task-types",
 	}
 	for _, route := range want {
 		if !slices.Contains(knownAPIRoutes, route) {

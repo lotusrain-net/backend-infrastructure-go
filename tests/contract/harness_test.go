@@ -11,6 +11,7 @@ import (
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/httpserver"
 	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"backend-infrastructure-go/internal/shared/pagination"
 )
 
 const contractUserID = "00112233-4455-6677-8899-aabbccddeeff"
@@ -26,7 +27,7 @@ func (contractReadiness) Ready(context.Context) error { return nil }
 
 type contractApplication struct {
 	pair iam.TokenPair
-	user iam.User
+	user iam.AuthenticatedUser
 }
 
 func (application *contractApplication) Login(context.Context, string, string) (iam.TokenPair, error) {
@@ -39,12 +40,17 @@ func (application *contractApplication) Refresh(context.Context, string) (iam.To
 
 func (application *contractApplication) Logout(context.Context, string) error { return nil }
 
-func (application *contractApplication) CurrentUser(context.Context, string) (iam.User, error) {
+func (application *contractApplication) CurrentUser(context.Context, string) (iam.AuthenticatedUser, error) {
 	return application.user, nil
 }
 
+func (application *contractApplication) Users(context.Context, iam.UserQuery) (pagination.Page[iam.User], error) {
+	user := application.user.User
+	return pagination.New([]iam.User{user}, 1, 20, 1), nil
+}
+
 func (application *contractApplication) CreateUser(context.Context, iam.CreateUserInput) (iam.User, error) {
-	return application.user, nil
+	return application.user.User, nil
 }
 
 func (application *contractApplication) SetUserActive(context.Context, string, bool) error {
@@ -83,9 +89,12 @@ func newContractHarness(t *testing.T) contractHarness {
 	}
 	application := &contractApplication{
 		pair: iam.TokenPair{AccessToken: accessToken, RefreshToken: "refresh-token", TokenType: "Bearer", ExpiresIn: 60},
-		user: iam.User{
-			ID: contractUserID, Email: "admin@example.com", Username: "admin",
-			DisplayName: "Admin", Active: true,
+		user: iam.AuthenticatedUser{
+			User: iam.User{
+				ID: contractUserID, Email: "admin@example.com", Username: "admin",
+				DisplayName: "Admin", Active: true,
+			},
+			Permissions: []string{"users:read", "tasks:read"},
 		},
 	}
 	router, err := httpserver.NewRouter(httpserver.RouterOptions{

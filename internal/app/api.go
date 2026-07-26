@@ -60,7 +60,7 @@ var knownAPIRoutes = []string{
 	"/api/v1/users/me", "/api/v1/users", "/api/v1/users/{userID}/active",
 	"/api/v1/roles", "/api/v1/permissions", "/api/v1/users/{userID}/roles/{roleID}",
 	"/api/v1/roles/{roleID}/permissions/{permissionID}", "/api/v1/audit-logs",
-	"/api/v1/task-executions", "/api/v1/task-executions/{executionID}",
+	"/api/v1/task-executions", "/api/v1/task-executions/{executionID}", "/api/v1/task-types",
 }
 
 type apiRuntime struct {

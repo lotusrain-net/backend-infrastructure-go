@@ -1,8 +1,12 @@
 .env
 .env.*
 !.env.example
+
+# Local editor state
 .idea/
 .vscode/
+
+# Go build and test artifacts
 bin/
 coverage.out
 dist/
@@ -10,3 +14,20 @@ tmp/
 *.exe
 *.test
 *.log
+
+# Node / Next.js dependencies and generated output
+node_modules/
+.node_modules_link_tmp/
+.next/
+out/
+coverage/
+.turbo/
+.eslintcache
+*.tsbuildinfo
+node_modules_stale_*/
+.node_modules_stale_*/
+web_config_tmp/
+.web_config_tmp/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*

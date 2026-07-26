@@ -153,12 +153,42 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserEnvelope"
+                $ref: "#/components/schemas/AuthenticatedUserEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
   /api/v1/users:
+    get:
+      operationId: listUsers
+      summary: List users with optional search and activation filters
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Paginated user collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPageEnvelope"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       operationId: createUser
       summary: Create a user
@@ -348,6 +378,37 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
   /api/v1/task-executions:
+    get:
+      operationId: listTaskExecutions
+      summary: List task executions newest first
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - name: task_type
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, succeeded, failed, cancelled]
+      responses:
+        "200":
+          description: Paginated task execution collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskExecutionPageEnvelope"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       operationId: submitTaskExecution
       summary: Submit a registered task type for asynchronous execution
@@ -399,6 +460,24 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/task-types:
+    get:
+      operationId: listTaskTypes
+      summary: List registered task types from the runtime catalog
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        "200":
+          description: Runtime task type collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskTypesEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
   securitySchemes:
     bearerAuth:
@@ -662,6 +741,42 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/User"
+    AuthenticatedUser:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [permissions]
+          properties:
+            permissions:
+              type: array
+              items:
+                type: string
+    AuthenticatedUserEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/AuthenticatedUser"
+    UserPageEnvelope:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+          enum: [success]
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/User"
+            meta:
+              $ref: "#/components/schemas/PaginationMeta"
     CreateUserRequest:
       type: object
       additionalProperties: false
@@ -795,7 +910,7 @@ components:
           format: uuid
         task_type:
           type: string
-          enum: [system.test]
+          description: A registered runtime task type. Retrieve supported values from GET /api/v1/task-types.
         payload:
           type: object
           additionalProperties: true
@@ -866,3 +981,37 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/TaskExecution"
+    TaskExecutionPageEnvelope:
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+          enum: [success]
+        data:
+          type: object
+          required: [items, meta]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskExecution"
+            meta:
+              $ref: "#/components/schemas/PaginationMeta"
+    TaskTypeRef:
+      type: object
+      required: [task_type]
+      properties:
+        task_type:
+          type: string
+    TaskTypesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskTypeRef"

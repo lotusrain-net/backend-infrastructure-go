@@ -29,8 +29,69 @@ Assert-True ($dockerfile -notmatch 'golang-migrate/migrate/.*/cmd/migrate') "Run
 Assert-True ($dockerfile -match '(?im)^COPY\s+.*db/migrations/\*\.sql\s+/app/migrations/?\s*$') "Dockerfile must copy only SQL migration artifacts"
 Assert-True ($dockerfile -notmatch '(?im)^USER\s+(root|0)(:0)?\s*$') "Dockerfile must not switch the runtime back to root"
 
+$webDockerfile = Read-Required "web/Dockerfile"
+Assert-True ($webDockerfile -match '(?im)^FROM\s+node:20-alpine\s+AS\s+deps\s*$') "Web Dockerfile must use Node 20"
+Assert-True ($webDockerfile -notmatch '(?im)^FROM\s+node:22') "Web Dockerfile must not use Node 22"
+Assert-True ($webDockerfile -match '(?im)^ARG\s+API_PROXY_TARGET\s*$') "Web Dockerfile must accept API_PROXY_TARGET at build time"
+Assert-True ($webDockerfile -match '(?im)^ENV\s+API_PROXY_TARGET=\$API_PROXY_TARGET\s*$') "Web Dockerfile must expose the build proxy target to Next.js"
+Assert-True ($webDockerfile -match '(?im)^USER\s+10001:10001\s*$') "Web Dockerfile runtime must use UID/GID 10001"
+Assert-True ($webDockerfile -notmatch '(?im)^COPY\s+--from=builder\s+/app/public\s+') "Web Dockerfile must not copy a missing public directory"
+
+$webHealthRoute = Read-Required "web/src/app/api/healthz/route.ts"
+Assert-True ($webHealthRoute -match 'health/ready') "Web health route must check API readiness"
+Assert-True ($webHealthRoute -match 'status:\s*["'']ok["'']') "Web health route must return an OK response"
+
+$nextConfig = Read-Required "web/next.config.ts"
+Assert-True ($nextConfig -match 'NODE_ENV\s*===\s*["'']production["'']') "Next.js config must distinguish production builds from local development"
+Assert-True ($nextConfig -match 'throw new Error\([^\r\n]*API_PROXY_TARGET') "Next.js config must reject a missing production API proxy target"
+Assert-True ($nextConfig -match '127\.0\.0\.1:8080') "Next.js config must retain a local development proxy default"
+
+$eslintConfig = Read-Required "web/eslint.config.mjs"
+Assert-True ($eslintConfig -match 'globalIgnores') "ESLint config must use global ignores for generated directories"
+foreach ($ignoredPath in @(".next/**", "coverage/**", "node_modules_stale_*/**", ".node_modules_stale_*/**")) {
+    Assert-True ($eslintConfig.Contains($ignoredPath)) "ESLint config must ignore $ignoredPath"
+}
+Assert-True ($eslintConfig -notmatch '(?im)["'']src(?:/|\*|["''])') "ESLint config must not hide application source files"
+
+$webRoot = Join-Path $root "web"
+$generatedWebDirectoryPattern = '^(?:\.?node_modules[^\\/]*|\.next|coverage|dist)$'
+function Get-WebFiles([string]$Directory) {
+    foreach ($item in Get-ChildItem -LiteralPath $Directory -Force) {
+        if ($item.PSIsContainer) {
+            if ($item.Name -match $generatedWebDirectoryPattern -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                continue
+            }
+            Get-WebFiles -Directory $item.FullName
+            continue
+        }
+        $item
+    }
+}
+$webFiles = @(Get-WebFiles -Directory $webRoot)
+$webRelativePaths = @($webFiles | ForEach-Object {
+    $_.FullName.Substring($webRoot.Length) -replace '^[\\/]+' , ''
+})
+$forbiddenFrontendPatterns = @(
+    @{ Label = "Douyin branding"; Pattern = '(?i)(douyin|抖音|tiktok)' },
+    @{ Label = "store business domain"; Pattern = '(?i)(\bshop\b|店铺)' },
+    @{ Label = "collection business domain"; Pattern = '(?i)(/collect(?:ion)?(?:/|["''`?])|\b(?:data[-_ ]?collection|collection[-_ ]?(?:task|record|source))\b|采集|crawler|crawl)' },
+    @{ Label = "Agent business domain"; Pattern = '(?i)(/agents?(?:/|["''`?])|\bagent\b|智能体)' }
+)
+$webSourceFiles = $webFiles | Where-Object {
+    $_.Name -ne "package-lock.json" -and $_.Extension -in @(".ts", ".tsx", ".js", ".mjs", ".cjs", ".css", ".json", ".md", ".yml", ".yaml")
+}
+foreach ($entry in $forbiddenFrontendPatterns) {
+    $pathMatches = $webRelativePaths | Where-Object { $_ -match $entry.Pattern }
+    Assert-True ($pathMatches.Count -eq 0) "Frontend contains forbidden $($entry.Label) path or asset: $($pathMatches -join ', ')"
+
+    $contentMatches = $webSourceFiles | Select-String -Pattern $entry.Pattern -List
+    Assert-True ($contentMatches.Count -eq 0) "Frontend contains forbidden $($entry.Label) term or API path: $($contentMatches.Path -join ', ')"
+}
+
 $composePath = Join-Path $root "deployments/compose.yml"
 Assert-True (Test-Path -LiteralPath $composePath -PathType Leaf) "Missing required file: deployments/compose.yml"
+$composeSource = Read-Required "deployments/compose.yml"
+Assert-True ($composeSource -match 'COOKIE_SECURE:\s*\$\{COOKIE_SECURE:-true\}') "Compose must retain secure-cookie defaults when no environment profile is supplied"
 $envPath = Join-Path $root $EnvFile
 Assert-True (Test-Path -LiteralPath $envPath -PathType Leaf) "Missing environment template: $EnvFile"
 
@@ -39,7 +100,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "docker compose config failed with exit code $LASTEXITCODE"
 }
 $config = $json | ConvertFrom-Json
-$requiredServices = @("postgres", "redis", "migrate", "seed-admin", "api", "worker", "scheduler")
+$requiredServices = @("postgres", "redis", "migrate", "seed-admin", "api", "worker", "scheduler", "web")
 foreach ($service in $requiredServices) {
     Assert-True ($null -ne $config.services.$service) "Compose service missing: $service"
 }
@@ -53,6 +114,7 @@ Assert-True ($null -ne $config.networks.edge) "Compose must define an edge netwo
 Assert-True ($config.networks.edge.internal -ne $true) "API edge network must permit host port publishing"
 Assert-True ($config.services.api.networks.PSObject.Properties.Name -contains "backend") "API must remain connected to the private backend network"
 Assert-True ($config.services.api.networks.PSObject.Properties.Name -contains "edge") "API must connect to the edge network for host access"
+Assert-True ($config.services.web.networks.PSObject.Properties.Name -contains "edge") "Web must connect to the edge network for host access"
 foreach ($service in @("postgres", "redis", "migrate", "seed-admin", "worker", "scheduler")) {
     Assert-True ($config.services.$service.networks.PSObject.Properties.Name -notcontains "edge") "$service must not connect to the edge network"
 }
@@ -73,6 +135,25 @@ foreach ($service in @("api", "worker", "scheduler")) {
     Assert-True ($config.services.$service.security_opt -contains "no-new-privileges:true") "$service must disable privilege escalation"
 }
 Assert-True ($null -ne $config.services.api.build) "API service must own the single application image build"
+Assert-True ($null -ne $config.services.web.build) "Web service must declare its own frontend build"
+Assert-True ($config.services.web.build.context -match '[/\\]web$') "Web service build context must resolve to the repository web directory"
+$webBuildProxyTarget = [string]$config.services.web.build.args.API_PROXY_TARGET
+$webRuntimeProxyTarget = [string]$config.services.web.environment.API_PROXY_TARGET
+Assert-True (-not [string]::IsNullOrWhiteSpace($webBuildProxyTarget)) "Web build must inject an API proxy target"
+Assert-True (-not [string]::IsNullOrWhiteSpace($webRuntimeProxyTarget)) "Web runtime must receive an API proxy target"
+Assert-True ($webBuildProxyTarget -eq $webRuntimeProxyTarget) "Web build and runtime API proxy targets must match"
+Assert-True ($config.services.web.depends_on.api.condition -eq "service_started") "Web must wait for the API container to start"
+Assert-True ($config.services.web.user -eq "10001:10001") "Web must run as UID/GID 10001"
+Assert-True ($config.services.web.read_only -eq $true) "Web root filesystem must be read-only"
+Assert-True ($config.services.web.security_opt -contains "no-new-privileges:true") "Web must disable privilege escalation"
+Assert-True ($config.services.web.healthcheck.test -join " " -match '/api/healthz') "Web healthcheck must probe the proxied /api/healthz endpoint"
+$webPorts = @($config.services.web.ports)
+Assert-True ($webPorts.Count -eq 1) "Web must publish exactly one host port"
+Assert-True ($webPorts[0].host_ip -eq "127.0.0.1") "Web must bind only to localhost"
+Assert-True ($webPorts[0].target -eq 3000) "Web container must listen on port 3000"
+Assert-True ($webPorts[0].published -eq "3000") "Web default published port must be 3000"
+Assert-True ($config.services.api.environment.COOKIE_SECURE -eq "false") "The HTTP localhost Compose profile must set COOKIE_SECURE=false so browser sessions can retain authentication cookies"
+Assert-True ($config.services.api.environment.APP_ENV -eq "development") "The HTTP localhost Compose profile must identify itself as development"
 foreach ($service in @("migrate", "seed-admin", "worker", "scheduler")) {
     Assert-True ($null -eq $config.services.$service.build) "$service must reuse the application image without declaring another build"
     Assert-True ($config.services.$service.image -eq $config.services.api.image) "$service must reuse the API application image"
@@ -90,9 +171,16 @@ foreach ($service in @("migrate", "worker", "scheduler")) {
 Assert-True ($config.services.'seed-admin'.environment.PSObject.Properties.Name -notcontains "JWT_SECRET") "Admin seed must not receive the API JWT secret"
 
 $smoke = Read-Required "scripts/docker-smoke.ps1"
-Assert-True ($smoke -match 'Invoke-Compose\s+@\("build",\s*"api"\)') "Docker smoke test must build the application image exactly once through the API service"
+Assert-True ($smoke -match 'Invoke-Compose\s+@\("build",\s*"api",\s*"web"\)') "Docker smoke test must build the API and web images before startup"
 Assert-True ($smoke -match 'Invoke-Compose\s+@\("up",\s*"-d",\s*"--no-build"') "Docker smoke test must start services without triggering duplicate image builds"
 Assert-True ($smoke -notmatch 'Invoke-Compose\s+@\("up"[^\r\n]*"--build"') "Docker smoke test must not build every service during compose up"
+Assert-True ($smoke -match '/api/healthz') "Docker smoke test must verify the web proxy health endpoint"
+Assert-True ($smoke -match '\$webBaseURL/api/v1/auth/login') "Docker smoke test must verify same-origin login through the web proxy"
+Assert-True ($smoke -match 'access_token=') "Docker smoke test must verify the proxied login returns an access cookie"
+Assert-True ($smoke -match 'refresh_token=') "Docker smoke test must verify the proxied login returns a refresh cookie"
+Assert-True ($smoke -match 'WebRequestSession') "Docker smoke test must retain same-origin login cookies for an authenticated web request"
+Assert-True ($smoke -match '\$webSession') "Docker smoke test must replay the retained same-origin login cookies"
+Assert-True ($smoke -match '\$webBaseURL/api/v1/users/me') "Docker smoke test must use the retained session for an authenticated same-origin request"
 Assert-True ($smoke -match '@arguments\s+exec\s+-T\s+postgres\s+printenv\s+POSTGRES_USER') "Docker smoke test must read the configured PostgreSQL user without shell interpolation"
 Assert-True ($smoke -match '@arguments\s+exec\s+-T\s+postgres\s+printenv\s+POSTGRES_DB') "Docker smoke test must read the configured PostgreSQL database without shell interpolation"
 Assert-True ($smoke -notmatch 'exec[^\r\n]*postgres[^\r\n]*sh[^\r\n]*-ec') "Docker smoke PostgreSQL checks must avoid nested shell quoting"
@@ -128,11 +216,18 @@ foreach ($relative in $deliveryFiles) {
 }
 
 $workflow = Read-Required ".github/workflows/ci.yml"
+Assert-True ($workflow -match '(?s)docker-e2e:.*?actions/setup-go@v5') "Docker E2E job must install Go before running the smoke verifier"
+Assert-True ($workflow -match '(?s)- name: Build\s+env:\s+API_PROXY_TARGET:\s+http://127\.0\.0\.1:8080\s+run: npm run build') "Web CI build must explicitly configure a local API proxy target"
 foreach ($gate in @(
     'go test -count=1 ./...',
     'go test -race -count=1 ./...',
     'go vet ./...',
     'go build ./...',
+    'npm ci',
+    'npm run lint',
+    'npm run typecheck',
+    'npm run test',
+    'npm run build',
     'staticcheck@v0.7.0 ./...',
     'govulncheck@v1.6.0 ./...',
     './db/verify-sqlc.ps1',

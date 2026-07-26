@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"backend-infrastructure-go/internal/shared/pagination"
 )
 
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -76,18 +78,41 @@ func (s *Service) RevokeAll(ctx context.Context, userID string) error {
 	return s.refresh.RevokeAll(ctx, userID)
 }
 
-func (s *Service) CurrentUser(ctx context.Context, userID string) (User, error) {
+func (s *Service) CurrentUser(ctx context.Context, userID string) (AuthenticatedUser, error) {
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return User{}, ErrNotFound
+			return AuthenticatedUser{}, ErrNotFound
 		}
-		return User{}, err
+		return AuthenticatedUser{}, err
 	}
 	if !user.Active {
-		return User{}, ErrInactiveUser
+		return AuthenticatedUser{}, ErrInactiveUser
 	}
-	return user, nil
+	authenticated := AuthenticatedUser{User: user, Permissions: []string{}}
+	if s.rbac == nil {
+		return authenticated, nil
+	}
+	permissions, err := s.rbac.PermissionsForUser(ctx, userID)
+	if err != nil {
+		return AuthenticatedUser{}, err
+	}
+	if permissions != nil {
+		authenticated.Permissions = permissions
+	}
+	return authenticated, nil
+}
+
+func (s *Service) Users(ctx context.Context, query UserQuery) (pagination.Page[User], error) {
+	page, size := pagination.Normalize(query.Page, query.Size)
+	items, total, err := s.users.List(ctx, UserFilter{
+		Query:  strings.TrimSpace(query.Filter.Query),
+		Active: query.Filter.Active,
+	}, size, (page-1)*size)
+	if err != nil {
+		return pagination.Page[User]{}, err
+	}
+	return pagination.New(items, page, size, total), nil
 }
 
 func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, error) {

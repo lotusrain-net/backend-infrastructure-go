@@ -3,6 +3,7 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -38,6 +39,24 @@ func ValidateTransition(from, to Status) error {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, from, to)
 	}
 	return nil
+}
+
+func ParseStatus(value string) (Status, bool) {
+	status := Status(value)
+	return status, slices.Contains([]Status{
+		StatusQueued, StatusRunning, StatusSucceeded, StatusFailed, StatusCancelled,
+	}, status)
+}
+
+type ExecutionFilter struct {
+	TaskType string
+	Status   Status
+}
+
+type ExecutionQuery struct {
+	Filter ExecutionFilter
+	Page   int
+	Size   int
 }
 
 type Result struct {

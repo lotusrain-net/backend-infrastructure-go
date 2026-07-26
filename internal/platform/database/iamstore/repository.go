@@ -15,6 +15,8 @@ import (
 type Queries interface {
 	GetUserByEmail(context.Context, string) (dbgen.User, error)
 	GetUserByID(context.Context, pgtype.UUID) (dbgen.User, error)
+	ListUsers(context.Context, dbgen.ListUsersParams) ([]dbgen.User, error)
+	CountUsers(context.Context, dbgen.CountUsersParams) (int64, error)
 	CreateUser(context.Context, dbgen.CreateUserParams) (dbgen.User, error)
 	SetUserActive(context.Context, dbgen.SetUserActiveParams) (int64, error)
 	ListUserPermissions(context.Context, pgtype.UUID) ([]string, error)
@@ -46,6 +48,30 @@ func (s *Store) FindByID(ctx context.Context, id string) (iam.User, error) {
 		return iam.User{}, mapDBError(err)
 	}
 	return userFromDB(row), nil
+}
+
+func (s *Store) List(ctx context.Context, filter iam.UserFilter, limit, offset int) ([]iam.User, int64, error) {
+	rows, err := s.queries.ListUsers(ctx, dbgen.ListUsersParams{
+		Query:  optionalText(filter.Query),
+		Active: optionalBool(filter.Active),
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	total, err := s.queries.CountUsers(ctx, dbgen.CountUsersParams{
+		Query:  optionalText(filter.Query),
+		Active: optionalBool(filter.Active),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	users := make([]iam.User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, userFromDB(row))
+	}
+	return users, total, nil
 }
 
 func (s *Store) Create(ctx context.Context, input iam.CreateUserInput) (iam.User, error) {
@@ -141,6 +167,17 @@ func uuidString(uuid pgtype.UUID) string {
 	}
 	b := uuid.Bytes
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func optionalBool(value *bool) pgtype.Bool {
+	if value == nil {
+		return pgtype.Bool{}
+	}
+	return pgtype.Bool{Bool: *value, Valid: true}
+}
+
+func optionalText(value string) pgtype.Text {
+	return pgtype.Text{String: value, Valid: value != ""}
 }
 
 func mapDBError(err error) error {

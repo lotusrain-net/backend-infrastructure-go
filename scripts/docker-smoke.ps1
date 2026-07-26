@@ -55,7 +55,7 @@ function Get-HTTPStatus([string]$URL) {
 }
 
 try {
-    Invoke-Compose @("build", "api")
+    Invoke-Compose @("build", "api", "web")
     Invoke-Compose @("up", "-d", "--no-build", "--wait", "--wait-timeout", "180")
 
     $postgresUser = (& docker @arguments exec -T postgres printenv POSTGRES_USER | Out-String).Trim()
@@ -77,8 +77,14 @@ try {
     }
 
     $apiEndpoint = (& docker @arguments port api 8080 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $apiEndpoint -notmatch ':(\d+)$') {
+    $apiEndpointMatch = [regex]::Match($apiEndpoint, ':(\d+)$')
+    if ($LASTEXITCODE -ne 0 -or -not $apiEndpointMatch.Success) {
         throw "Could not determine the published API port"
+    }
+    $webEndpoint = (& docker @arguments port web 3000 | Out-String).Trim()
+    $webEndpointMatch = [regex]::Match($webEndpoint, ':(\d+)$')
+    if ($LASTEXITCODE -ne 0 -or -not $webEndpointMatch.Success) {
+        throw "Could not determine the published web port"
     }
     $resolvedComposeJSON = & docker @arguments config --format json
     if ($LASTEXITCODE -ne 0) {
@@ -90,9 +96,30 @@ try {
     if ([string]::IsNullOrWhiteSpace($adminEmail) -or [string]::IsNullOrWhiteSpace($adminPassword)) {
         throw "Could not resolve E2E administrator credentials"
     }
-    $env:E2E_BASE_URL = "http://127.0.0.1:$($Matches[1])"
+    $env:E2E_BASE_URL = "http://127.0.0.1:$($apiEndpointMatch.Groups[1].Value)"
     $env:E2E_ADMIN_EMAIL = $adminEmail
     $env:E2E_ADMIN_PASSWORD = $adminPassword
+    $webBaseURL = "http://127.0.0.1:$($webEndpointMatch.Groups[1].Value)"
+    if ((Get-HTTPStatus "$webBaseURL/api/healthz") -ne 200) {
+        throw "Web proxy health endpoint did not return 200"
+    }
+    $webLoginBody = @{ email = $adminEmail; password = $adminPassword } | ConvertTo-Json -Compress
+    $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $webLogin = Invoke-WebRequest -UseBasicParsing -WebSession $webSession -Uri "$webBaseURL/api/v1/auth/login" -Method Post -ContentType "application/json" -Body $webLoginBody -TimeoutSec 15
+    if ($webLogin.StatusCode -ne 200) {
+        throw "Web same-origin login did not return 200"
+    }
+    $webLoginCookies = @($webLogin.Headers["Set-Cookie"]) -join "`n"
+    if ($webLoginCookies -notmatch "access_token=") {
+        throw "Web same-origin login did not return an access cookie"
+    }
+    if ($webLoginCookies -notmatch "refresh_token=") {
+        throw "Web same-origin login did not return a refresh cookie"
+    }
+    $webCurrentUser = Invoke-WebRequest -UseBasicParsing -WebSession $webSession -Uri "$webBaseURL/api/v1/users/me" -TimeoutSec 15
+    if ($webCurrentUser.StatusCode -ne 200) {
+        throw "Web same-origin session cookies were not replayed to the authenticated user endpoint"
+    }
     Push-Location $root
     try {
         & go run ./scripts/verification

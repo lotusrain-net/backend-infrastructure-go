@@ -12,6 +12,7 @@ import (
 	"backend-infrastructure-go/internal/modules/audit"
 	"backend-infrastructure-go/internal/modules/iam"
 	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"backend-infrastructure-go/internal/shared/pagination"
 )
 
 type preserveStub struct{ event audit.NewEvent }
@@ -29,8 +30,13 @@ func (s iamStub) Login(context.Context, string, string) (iam.TokenPair, error) {
 func (s iamStub) Refresh(context.Context, string) (iam.TokenPair, error) {
 	return iam.TokenPair{}, s.err
 }
-func (s iamStub) Logout(context.Context, string) error                  { return s.err }
-func (s iamStub) CurrentUser(context.Context, string) (iam.User, error) { return iam.User{}, s.err }
+func (s iamStub) Logout(context.Context, string) error { return s.err }
+func (s iamStub) CurrentUser(context.Context, string) (iam.AuthenticatedUser, error) {
+	return iam.AuthenticatedUser{}, s.err
+}
+func (s iamStub) Users(context.Context, iam.UserQuery) (pagination.Page[iam.User], error) {
+	return pagination.Page[iam.User]{}, s.err
+}
 func (s iamStub) CreateUser(context.Context, iam.CreateUserInput) (iam.User, error) {
 	return iam.User{}, s.err
 }

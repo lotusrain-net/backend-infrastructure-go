@@ -27,6 +27,11 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at,omitempty"`
 }
 
+type AuthenticatedUser struct {
+	User
+	Permissions []string `json:"permissions"`
+}
+
 type Role struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -45,9 +50,21 @@ type CreateUserInput struct {
 	DisplayName string `json:"display_name"`
 }
 
+type UserFilter struct {
+	Query  string
+	Active *bool
+}
+
+type UserQuery struct {
+	Filter UserFilter
+	Page   int
+	Size   int
+}
+
 type UserRepository interface {
 	FindByEmail(context.Context, string) (User, error)
 	FindByID(context.Context, string) (User, error)
+	List(context.Context, UserFilter, int, int) ([]User, int64, error)
 	Create(context.Context, CreateUserInput) (User, error)
 	SetActive(context.Context, string, bool) error
 }

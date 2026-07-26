@@ -193,6 +193,24 @@ func (q *Queries) CreateTaskExecutionWithPendingPublish(ctx context.Context, arg
 	return i, err
 }
 
+const countTaskExecutions = `-- name: CountTaskExecutions :one
+SELECT count(*) FROM task_executions
+WHERE ($1::text IS NULL OR task_type = $1)
+  AND ($2::text IS NULL OR status = $2)
+`
+
+type CountTaskExecutionsParams struct {
+	TaskType pgtype.Text `json:"task_type"`
+	Status   pgtype.Text `json:"status"`
+}
+
+func (q *Queries) CountTaskExecutions(ctx context.Context, arg CountTaskExecutionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countTaskExecutions, arg.TaskType, arg.Status)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getTaskExecution = `-- name: GetTaskExecution :one
 SELECT id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at FROM task_executions WHERE id = $1
 `
@@ -218,6 +236,57 @@ func (q *Queries) GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExe
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listTaskExecutions = `-- name: ListTaskExecutions :many
+SELECT id, definition_id, task_type, queue_id, idempotency_key, payload, status, attempt, processed_rows, error_summary, queued_at, started_at, finished_at, created_at, updated_at FROM task_executions
+WHERE ($1::text IS NULL OR task_type = $1)
+  AND ($2::text IS NULL OR status = $2)
+ORDER BY created_at DESC, id DESC
+LIMIT $4 OFFSET $3
+`
+
+type ListTaskExecutionsParams struct {
+	TaskType pgtype.Text `json:"task_type"`
+	Status   pgtype.Text `json:"status"`
+	Offset   int32       `json:"offset"`
+	Limit    int32       `json:"limit"`
+}
+
+func (q *Queries) ListTaskExecutions(ctx context.Context, arg ListTaskExecutionsParams) ([]TaskExecution, error) {
+	rows, err := q.db.Query(ctx, listTaskExecutions, arg.TaskType, arg.Status, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskExecution{}
+	for rows.Next() {
+		var i TaskExecution
+		if err := rows.Scan(
+			&i.ID,
+			&i.DefinitionID,
+			&i.TaskType,
+			&i.QueueID,
+			&i.IdempotencyKey,
+			&i.Payload,
+			&i.Status,
+			&i.Attempt,
+			&i.ProcessedRows,
+			&i.ErrorSummary,
+			&i.QueuedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listEnabledTaskSchedules = `-- name: ListEnabledTaskSchedules :many

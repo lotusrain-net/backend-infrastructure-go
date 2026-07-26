@@ -26,6 +26,18 @@ SELECT * FROM execution;
 -- name: GetTaskExecution :one
 SELECT * FROM task_executions WHERE id = $1;
 
+-- name: ListTaskExecutions :many
+SELECT * FROM task_executions
+WHERE (sqlc.narg('task_type')::text IS NULL OR task_type = sqlc.narg('task_type'))
+  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: CountTaskExecutions :one
+SELECT count(*) FROM task_executions
+WHERE (sqlc.narg('task_type')::text IS NULL OR task_type = sqlc.narg('task_type'))
+  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'));
+
 -- name: ClaimTaskExecution :execrows
 UPDATE task_executions
 SET status = 'running', started_at = COALESCE(started_at, $3), attempt = $2, updated_at = NOW()

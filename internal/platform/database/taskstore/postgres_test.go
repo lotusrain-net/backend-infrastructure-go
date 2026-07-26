@@ -38,10 +38,14 @@ type executionQueriesStub struct {
 	claimErr         error
 	claimRows        int64
 	updateRows       int64
+	total            int64
 	createParams     dbgen.CreateTaskExecutionParams
 	createOutbox     dbgen.CreateTaskExecutionWithPendingPublishParams
 	updateParams     dbgen.UpdateTaskExecutionStatusParams
 	claimParams      dbgen.ClaimTaskExecutionParams
+	listParams       dbgen.ListTaskExecutionsParams
+	countParams      dbgen.CountTaskExecutionsParams
+	listRows         []dbgen.TaskExecution
 	outboxList       []dbgen.ListPendingTaskOutboxMessagesRow
 	listPendingLimit int32
 	markPublishedID  string
@@ -54,6 +58,16 @@ func (queries *executionQueriesStub) CreateTaskExecution(_ context.Context, para
 
 func (queries *executionQueriesStub) GetTaskExecution(context.Context, pgtype.UUID) (dbgen.TaskExecution, error) {
 	return dbgen.TaskExecution{ID: testUUID, TaskType: "report.generate", Status: string(taskmodule.StatusRunning)}, queries.getErr
+}
+
+func (queries *executionQueriesStub) ListTaskExecutions(_ context.Context, params dbgen.ListTaskExecutionsParams) ([]dbgen.TaskExecution, error) {
+	queries.listParams = params
+	return queries.listRows, nil
+}
+
+func (queries *executionQueriesStub) CountTaskExecutions(_ context.Context, params dbgen.CountTaskExecutionsParams) (int64, error) {
+	queries.countParams = params
+	return queries.total, nil
 }
 
 func (queries *executionQueriesStub) ClaimTaskExecution(_ context.Context, params dbgen.ClaimTaskExecutionParams) (int64, error) {
@@ -259,6 +273,34 @@ func TestPostgresExecutionStoreListsAndMarksPendingPublishes(t *testing.T) {
 	}
 	if queries.markPublishedID != "queue-1" {
 		t.Fatalf("markPublishedID = %q", queries.markPublishedID)
+	}
+}
+
+func TestPostgresExecutionStoreListsExecutionsNewestFirstPage(t *testing.T) {
+	t.Parallel()
+
+	queries := &executionQueriesStub{
+		listRows: []dbgen.TaskExecution{{ID: testUUID, TaskType: "report.generate", Status: string(taskmodule.StatusSucceeded)}},
+		total:    8,
+	}
+	store := NewPostgresExecutionStore(queries)
+
+	page, err := store.ListExecutions(context.Background(), taskmodule.ExecutionQuery{
+		Filter: taskmodule.ExecutionFilter{TaskType: "report.generate", Status: taskmodule.StatusSucceeded},
+		Page:   2,
+		Size:   5,
+	})
+	if err != nil {
+		t.Fatalf("ListExecutions() error = %v", err)
+	}
+	if queries.listParams.TaskType.String != "report.generate" || queries.listParams.Status.String != string(taskmodule.StatusSucceeded) || queries.listParams.Offset != 5 || queries.listParams.Limit != 5 {
+		t.Fatalf("list params = %+v", queries.listParams)
+	}
+	if queries.countParams.TaskType.String != "report.generate" || queries.countParams.Status.String != string(taskmodule.StatusSucceeded) {
+		t.Fatalf("count params = %+v", queries.countParams)
+	}
+	if len(page.Items) != 1 || page.Items[0].ID != testUUIDString || page.Meta.Page != 2 || page.Meta.Size != 5 || page.Meta.Total != 8 {
+		t.Fatalf("page = %+v", page)
 	}
 }
 

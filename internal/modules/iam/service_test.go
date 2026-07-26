@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"backend-infrastructure-go/internal/shared/pagination"
 )
 
 type memoryRefreshCache struct {
@@ -30,6 +32,9 @@ type failingUsers struct{ err error }
 
 func (f failingUsers) FindByEmail(context.Context, string) (User, error) { return User{}, f.err }
 func (f failingUsers) FindByID(context.Context, string) (User, error)    { return User{}, f.err }
+func (f failingUsers) List(context.Context, UserFilter, int, int) ([]User, int64, error) {
+	return nil, 0, f.err
+}
 func (f failingUsers) Create(context.Context, CreateUserInput) (User, error) {
 	return User{}, f.err
 }
@@ -228,6 +233,9 @@ func (u *blockingRefreshUsers) FindByID(context.Context, string) (User, error) {
 	<-u.release
 	return u.user, nil
 }
+func (u *blockingRefreshUsers) List(context.Context, UserFilter, int, int) ([]User, int64, error) {
+	return []User{u.user}, 1, nil
+}
 func (u *blockingRefreshUsers) Create(context.Context, CreateUserInput) (User, error) {
 	return User{}, nil
 }
@@ -265,6 +273,8 @@ func TestRefreshRotationCannotSurviveConcurrentRevokeAll(t *testing.T) {
 type fakeUsers struct {
 	byEmail        map[string]User
 	byID           map[string]User
+	listed         []User
+	total          int64
 	createErr      error
 	setActiveCalls int
 }
@@ -296,6 +306,12 @@ func (f *fakeUsers) FindByID(_ context.Context, id string) (User, error) {
 		return User{}, ErrNotFound
 	}
 	return u, nil
+}
+func (f *fakeUsers) List(_ context.Context, _ UserFilter, _ int, _ int) ([]User, int64, error) {
+	if f.byID == nil && f.byEmail == nil && f.listed == nil && f.createErr != nil {
+		return nil, 0, f.createErr
+	}
+	return append([]User(nil), f.listed...), f.total, nil
 }
 func (f *fakeUsers) Create(_ context.Context, input CreateUserInput) (User, error) {
 	if f.createErr != nil {
@@ -379,6 +395,27 @@ func TestCurrentUserPropagatesRepositoryFailure(t *testing.T) {
 	}
 }
 
+func TestUsersNormalizesPaginationAndDelegatesFilter(t *testing.T) {
+	repo := &fakeUsers{
+		listed: []User{{ID: "u1", Email: "alice@example.com", Username: "alice", Active: true}},
+		total:  1,
+	}
+	service := NewService(repo, nil, nil, nil, nil)
+	active := true
+
+	page, err := service.Users(context.Background(), UserQuery{
+		Filter: UserFilter{Query: "  Alice  ", Active: &active},
+		Page:   0,
+		Size:   pagination.MaxSize + 10,
+	})
+	if err != nil {
+		t.Fatalf("Users() error = %v", err)
+	}
+	if len(page.Items) != 1 || page.Meta.Page != 1 || page.Meta.Size != pagination.MaxSize || page.Meta.Total != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+}
+
 func TestCreateUserSurfacesDuplicateIdentity(t *testing.T) {
 	auth := newTestAuth(t, &fakeUsers{createErr: ErrDuplicateIdentity})
 	_, err := auth.CreateUser(context.Background(), CreateUserInput{Email: "taken@example.com", Username: "taken", Password: "password-long-enough"})
@@ -431,6 +468,8 @@ func TestServiceLoginRefreshLogoutAndAuthorization(t *testing.T) {
 	}
 	if current, err := service.CurrentUser(context.Background(), user.ID); err != nil || current.ID != user.ID {
 		t.Fatalf("current=%+v err=%v", current, err)
+	} else if got := strings.Join(current.Permissions, ","); got != "users:read" {
+		t.Fatalf("permissions=%q", got)
 	}
 	if err := service.Logout(context.Background(), rotated.RefreshToken); err != nil {
 		t.Fatal(err)

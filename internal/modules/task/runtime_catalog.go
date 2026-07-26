@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -54,6 +55,7 @@ func (catalog *TaskCatalog) Types() []string {
 	for _, registration := range catalog.registrations {
 		types = append(types, registration.TaskType)
 	}
+	slices.Sort(types)
 	return types
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"backend-infrastructure-go/internal/modules/iam"
+	"backend-infrastructure-go/internal/shared/pagination"
 	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 )
 
@@ -86,13 +87,16 @@ func TestCurrentUserHTTPContractSupportsBearerAndRejectsAnonymous(t *testing.T) 
 		t.Fatalf("authorized status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	var success struct {
-		Code int      `json:"code"`
-		Msg  string   `json:"msg"`
-		Data iam.User `json:"data"`
+		Code int                   `json:"code"`
+		Msg  string                `json:"msg"`
+		Data iam.AuthenticatedUser `json:"data"`
 	}
 	decodeContractJSON(t, recorder, &success)
 	if success.Data.ID != contractUserID {
 		t.Fatalf("current user = %+v", success.Data)
+	}
+	if got := strings.Join(success.Data.Permissions, ","); got != "users:read,tasks:read" {
+		t.Fatalf("current user permissions = %q", got)
 	}
 
 	recorder = httptest.NewRecorder()
@@ -104,6 +108,41 @@ func TestCurrentUserHTTPContractSupportsBearerAndRejectsAnonymous(t *testing.T) 
 	decodeContractJSON(t, recorder, &failure)
 	if failure["code"] != float64(http.StatusUnauthorized) || failure["msg"] == "" {
 		t.Fatalf("error envelope = %#v", failure)
+	}
+}
+
+func TestUsersListHTTPContractReturnsPaginatedUsersWithoutPasswordHashes(t *testing.T) {
+	t.Parallel()
+
+	harness := newContractHarness(t)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users?page=1&size=20&query=admin&is_active=true", nil)
+	request.Header.Set("Authorization", "Bearer "+harness.accessToken)
+	recorder := httptest.NewRecorder()
+	harness.handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Items []iam.User        `json:"items"`
+			Meta  pagination.Meta `json:"meta"`
+		} `json:"data"`
+	}
+	decodeContractJSON(t, recorder, &envelope)
+	if envelope.Code != http.StatusOK || envelope.Msg != "success" || len(envelope.Data.Items) != 1 {
+		t.Fatalf("users envelope = %+v", envelope)
+	}
+	if envelope.Data.Items[0].PasswordHash != "" {
+		t.Fatalf("password hash leaked in contract response: %+v", envelope.Data.Items[0])
+	}
+	if strings.Contains(recorder.Body.String(), "\"permissions\"") {
+		t.Fatalf("list users response leaked caller permissions: %s", recorder.Body.String())
+	}
+	if envelope.Data.Meta.Page != 1 || envelope.Data.Meta.Size != 20 || envelope.Data.Meta.Total != 1 {
+		t.Fatalf("pagination meta = %+v", envelope.Data.Meta)
 	}
 }
 
