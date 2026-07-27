@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { TabList, TabPanel, TabTrigger, Tabs } from "@/components/ui/tabs";
 
@@ -25,7 +26,9 @@ describe("Tabs", () => {
     expect(profileTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tabpanel").textContent).toContain("资料内容");
 
-    profileTab.focus();
+    act(() => {
+      profileTab.focus();
+    });
     await user.keyboard("{ArrowRight}");
 
     expect(screen.getByRole("tab", { name: "外观" }).getAttribute("aria-selected")).toBe("true");

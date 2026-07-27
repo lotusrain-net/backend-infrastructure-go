@@ -65,6 +65,9 @@ describe("AuditConsole", () => {
       from: "2026-07-25T00:00:00.000Z",
       to: "2026-07-26T00:00:00.000Z",
     });
+    expect(screen.getByRole("combobox", { name: "结果" }).textContent).toContain("失败");
+    expect(screen.getByRole("button", { name: "首页" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "末页" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "查看审计事件详情" }));
 

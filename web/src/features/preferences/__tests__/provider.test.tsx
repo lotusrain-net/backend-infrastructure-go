@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from "@/features/preferences/provider";
+import { AppearanceControls } from "@/features/preferences/appearance-controls";
 import { getThemeState } from "@/stores/theme-store";
 import type { AccountPreferences } from "@/types/api";
 
@@ -26,11 +27,12 @@ const serverPreferences: AccountPreferences = {
 };
 
 function Harness() {
-  const { preferences, syncStatus, updatePreferences, retry } = useAppearancePreferences();
+  const { preferences, syncStatus, previewPreferences, updatePreferences, retry } = useAppearancePreferences();
   return (
     <>
       <output data-testid="preferences">{JSON.stringify(preferences)}</output>
       <output data-testid="sync-status">{syncStatus}</output>
+      <button onClick={() => previewPreferences({ accent_color: "#FFF200" })}>预览主题颜色</button>
       <button onClick={() => updatePreferences({ theme: "enterprise" })}>更新主题</button>
       <button onClick={() => updatePreferences({ font_scale: "large" })}>放大字号</button>
       <button onClick={retry}>重试</button>
@@ -77,6 +79,30 @@ describe("AppearancePreferencesProvider", () => {
 
     await user.click(screen.getByRole("button", { name: "重试" }));
     expect(mutateAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies a local color preview without enqueueing an incomplete preference request", async () => {
+    const user = userEvent.setup();
+    render(<AppearancePreferencesProvider userID="user-1"><Harness /></AppearancePreferencesProvider>);
+
+    await user.click(screen.getByRole("button", { name: "预览主题颜色" }));
+
+    expect(getThemeState().preferences.accent_color).toBe("#FFF200");
+    expect(getThemeState().isPreviewing).toBe(true);
+    expect(getThemeState().pendingPreferences).toBeNull();
+    expect(document.documentElement.style.getPropertyValue("--background")).not.toBe("");
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps the native color picker mounted while a local preview updates the provider", () => {
+    render(<AppearancePreferencesProvider userID="user-1"><AppearanceControls /></AppearancePreferencesProvider>);
+
+    const picker = screen.getByLabelText("主强调色");
+    fireEvent.input(picker, { target: { value: "#1a2b3c" } });
+
+    expect(screen.getByLabelText("主强调色")).toBe(picker);
+    expect(getThemeState().preferences.accent_color).toBe("#1A2B3C");
+    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it("serializes rapid changes and never applies an older server response over the latest preview", async () => {

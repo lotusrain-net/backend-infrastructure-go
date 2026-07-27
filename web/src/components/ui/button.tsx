@@ -3,15 +3,17 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 border text-[length:var(--text-label)] font-medium transition-colors [border-radius:var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45",
+export const buttonVariants = cva(
+  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border text-[length:var(--text-label)] font-medium transition-[color,background-color,border-color,box-shadow,transform] [border-radius:var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-45 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        primary: "border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--accent-contrast)] hover:bg-[color:var(--accent-primary-hover)]",
-        secondary: "border-[color:var(--border-strong)] bg-[color:var(--surface)] text-[color:var(--fg-default)] hover:bg-[color:var(--surface-hover)]",
-        ghost: "border-transparent bg-transparent text-[color:var(--fg-default)] hover:bg-[color:var(--surface-hover)]",
-        danger: "border-[color:var(--danger)] bg-[color:var(--danger)] text-[color:var(--danger-contrast)] hover:opacity-90",
+        default: "border-[color:var(--primary)] bg-[color:var(--primary)] text-[color:var(--primary-foreground)] hover:bg-[color:var(--primary-hover)]",
+        secondary: "border-[color:var(--secondary)] bg-[color:var(--secondary)] text-[color:var(--secondary-foreground)] hover:brightness-[0.97]",
+        outline: "border-[color:var(--input)] bg-[color:var(--card)] text-[color:var(--foreground)] hover:bg-[color:var(--accent)] hover:text-[color:var(--accent-foreground)]",
+        ghost: "border-transparent bg-transparent text-[color:var(--foreground)] hover:bg-[color:var(--accent)] hover:text-[color:var(--accent-foreground)]",
+        destructive: "border-[color:var(--destructive)] bg-[color:var(--destructive)] text-[color:var(--destructive-foreground)] hover:brightness-95",
+        link: "border-transparent bg-transparent text-[color:var(--primary)] underline-offset-4 hover:underline",
       },
       size: {
         sm: "h-8 px-2.5",
@@ -21,7 +23,7 @@ const buttonVariants = cva(
       },
     },
     defaultVariants: {
-      variant: "primary",
+      variant: "default",
       size: "default",
     },
   },
@@ -33,8 +35,12 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
-export function Button({ asChild = false, className, variant, size, ...props }: ButtonProps) {
-  const Component = asChild ? Slot : "button";
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ asChild = false, className, variant, size, ...props }, ref) => {
+    const Component = asChild ? Slot : "button";
 
-  return <Component className={cn(buttonVariants({ variant, size }), className)} {...props} />;
-}
+    return <Component ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  },
+);
+
+Button.displayName = "Button";

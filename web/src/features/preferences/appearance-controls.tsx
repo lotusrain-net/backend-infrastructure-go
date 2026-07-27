@@ -4,7 +4,13 @@ import * as React from "react";
 import { Monitor, Moon, Palette, RotateCcw, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DEFAULT_ACCOUNT_PREFERENCES,
   normalizeAccentColor,
@@ -35,10 +41,12 @@ const radiusScales: Array<{ value: RadiusScale; label: string }> = [
   { value: "rounded", label: "圆润" },
 ];
 
+const ACCENT_COMMIT_DELAY = 300;
+
 export function AppearanceControls({ compact = false }: { compact?: boolean }) {
   const appearance = useAppearancePreferences();
 
-  return <AppearanceControlsForm key={appearance.preferences.accent_color ?? "theme-default"} compact={compact} {...appearance} />;
+  return <AppearanceControlsForm compact={compact} {...appearance} />;
 }
 
 function AppearanceControlsForm({
@@ -46,6 +54,7 @@ function AppearanceControlsForm({
   preferences,
   syncStatus,
   syncError,
+  previewPreferences,
   updatePreferences,
   retry,
 }: {
@@ -53,39 +62,70 @@ function AppearanceControlsForm({
   preferences: ReturnType<typeof useAppearancePreferences>["preferences"];
   syncStatus: ReturnType<typeof useAppearancePreferences>["syncStatus"];
   syncError: string | null;
+  previewPreferences: ReturnType<typeof useAppearancePreferences>["previewPreferences"];
   updatePreferences: ReturnType<typeof useAppearancePreferences>["updatePreferences"];
   retry: ReturnType<typeof useAppearancePreferences>["retry"];
 }) {
-  const [accentDraft, setAccentDraft] = React.useState(preferences.accent_color ?? "");
+  const [accentDraft, setAccentDraft] = React.useState<string | null>(null);
   const [accentError, setAccentError] = React.useState<string | null>(null);
+  const accentCommitTimeout = React.useRef<number | null>(null);
 
-  function commitAccent(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) {
+  const clearAccentCommit = React.useCallback(() => {
+    if (accentCommitTimeout.current !== null) {
+      window.clearTimeout(accentCommitTimeout.current);
+      accentCommitTimeout.current = null;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    return clearAccentCommit;
+  }, [clearAccentCommit]);
+
+  const previewAccent = React.useCallback(
+    (value: string) => {
+      const accent = parseAccentDraft(value);
+      if (accent === undefined) {
+        return;
+      }
+
       setAccentError(null);
-      updatePreferences({ accent_color: null });
-      return;
-    }
+      previewPreferences({ accent_color: accent });
+    },
+    [previewPreferences],
+  );
 
-    const normalized = normalizeAccentColor(trimmed);
-    if (!normalized) {
-      setAccentError("请输入 #RRGGBB 格式的颜色。");
-      return;
-    }
+  const scheduleAccentCommit = React.useCallback(
+    (value: string) => {
+      const accent = parseAccentDraft(value);
+      if (accent === undefined) {
+        setAccentError("请输入 #RRGGBB 格式的颜色。");
+        return;
+      }
 
-    setAccentError(null);
-    setAccentDraft(normalized);
-    updatePreferences({ accent_color: normalized });
-  }
+      setAccentError(null);
+      clearAccentCommit();
+      accentCommitTimeout.current = window.setTimeout(() => {
+        accentCommitTimeout.current = null;
+        updatePreferences({ accent_color: accent });
+      }, ACCENT_COMMIT_DELAY);
+    },
+    [clearAccentCommit, updatePreferences],
+  );
+
+  const displayedAccent = accentDraft ?? preferences.accent_color ?? "";
+  const pickerAccent = normalizeAccentColor(displayedAccent) ?? preferences.accent_color ?? "#147D6B";
 
   return (
     <div className="space-y-5">
-      <label className="grid gap-1.5 text-[length:var(--text-label)] font-medium text-[color:var(--fg-muted)]">
+      <div className="grid gap-1.5 text-[length:var(--text-label)] font-medium text-[color:var(--muted-foreground)]">
         <span className="flex items-center gap-2"><Palette aria-hidden="true" className="h-4 w-4" />界面主题</span>
-        <Select value={preferences.theme} onChange={(event) => updatePreferences({ theme: event.target.value as ThemeName })}>
-          {themes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        <Select value={preferences.theme} onValueChange={(theme) => updatePreferences({ theme: theme as ThemeName })}>
+          <SelectTrigger aria-label="界面主题"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {themes.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+          </SelectContent>
         </Select>
-      </label>
+      </div>
 
       <SegmentedControl
         label="色彩模式"
@@ -97,28 +137,40 @@ function AppearanceControlsForm({
       {compact ? null : (
         <>
           <fieldset className="grid gap-2">
-            <legend className="text-[length:var(--text-label)] font-medium text-[color:var(--fg-muted)]">主强调色</legend>
+            <legend className="text-[length:var(--text-label)] font-medium text-[color:var(--muted-foreground)]">主强调色</legend>
             <div className="flex flex-wrap items-center gap-3">
               <input
                 aria-label="主强调色"
                 type="color"
-                value={preferences.accent_color ?? "#0F63C9"}
-                onChange={(event) => {
-                  setAccentDraft(event.target.value.toUpperCase());
-                  commitAccent(event.target.value);
+                value={pickerAccent}
+                onInput={(event) => {
+                  const value = event.currentTarget.value.toUpperCase();
+                  setAccentDraft(value);
+                  previewAccent(value);
                 }}
-                className="h-10 w-12 cursor-pointer border border-[color:var(--border-strong)] bg-[color:var(--surface)] p-1 [border-radius:var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+                onChange={(event) => {
+                  const value = event.currentTarget.value.toUpperCase();
+                  setAccentDraft(value);
+                  previewAccent(value);
+                  scheduleAccentCommit(value);
+                }}
+                onBlur={(event) => scheduleAccentCommit(event.currentTarget.value)}
+                className="h-10 w-12 cursor-pointer border border-[color:var(--input)] bg-[color:var(--input-background)] p-1 [border-radius:var(--radius-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
               />
-              <label className="grid min-w-[13rem] flex-1 gap-1 text-[length:var(--text-label)] text-[color:var(--fg-muted)]">
+              <label className="grid min-w-[13rem] flex-1 gap-1 text-[length:var(--text-label)] text-[color:var(--muted-foreground)]">
                 <span>主强调色 Hex</span>
                 <Input
-                  value={accentDraft}
-                  onChange={(event) => setAccentDraft(event.target.value)}
-                  onBlur={(event) => commitAccent(event.target.value)}
+                  value={displayedAccent}
+                  onChange={(event) => {
+                    const value = event.target.value.toUpperCase();
+                    setAccentDraft(value);
+                    previewAccent(value);
+                  }}
+                  onBlur={(event) => scheduleAccentCommit(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      commitAccent(event.currentTarget.value);
+                      scheduleAccentCommit(event.currentTarget.value);
                     }
                   }}
                   aria-invalid={accentError ? "true" : undefined}
@@ -127,7 +179,7 @@ function AppearanceControlsForm({
                 />
               </label>
             </div>
-            {accentError ? <p id="accent-color-error" role="alert" className="text-[length:var(--text-label)] text-[color:var(--danger)]">{accentError}</p> : null}
+            {accentError ? <p id="accent-color-error" role="alert" className="text-[length:var(--text-label)] text-[color:var(--destructive)]">{accentError}</p> : null}
           </fieldset>
 
           <SegmentedControl
@@ -143,7 +195,12 @@ function AppearanceControlsForm({
             onChange={(font_scale) => updatePreferences({ font_scale: font_scale as FontScale })}
           />
 
-          <Button type="button" variant="secondary" onClick={() => updatePreferences(DEFAULT_ACCOUNT_PREFERENCES)}>
+          <Button type="button" variant="secondary" onClick={() => {
+            clearAccentCommit();
+            setAccentDraft(null);
+            setAccentError(null);
+            updatePreferences(DEFAULT_ACCOUNT_PREFERENCES);
+          }}>
             <RotateCcw aria-hidden="true" className="h-4 w-4" />
             重置外观
           </Button>
@@ -168,7 +225,7 @@ function SegmentedControl({
 }) {
   return (
     <fieldset>
-      <legend className="text-[length:var(--text-label)] font-medium text-[color:var(--fg-muted)]">{label}</legend>
+      <legend className="text-[length:var(--text-label)] font-medium text-[color:var(--muted-foreground)]">{label}</legend>
       <div className="mt-1.5 grid grid-flow-col auto-cols-fr gap-2">
         {options.map((option) => {
           const selected = option.value === value;
@@ -178,7 +235,7 @@ function SegmentedControl({
               type="button"
               aria-pressed={selected}
               onClick={() => onChange(option.value)}
-              className={`flex min-h-10 items-center justify-center gap-1 border px-2 text-[length:var(--text-label)] font-medium transition-colors [border-radius:var(--radius-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] ${selected ? "border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-subtle)] text-[color:var(--accent-primary)]" : "border-[color:var(--border-subtle)] text-[color:var(--fg-muted)] hover:bg-[color:var(--surface-hover)]"}`}
+              className={`flex min-h-10 items-center justify-center gap-1 border px-2 text-[length:var(--text-label)] font-medium transition-colors [border-radius:var(--radius-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] ${selected ? "border-[color:var(--primary)] bg-[color:var(--primary)] text-[color:var(--primary-foreground)]" : "border-[color:var(--border)] text-[color:var(--muted-foreground)] hover:bg-[color:var(--accent)] hover:text-[color:var(--accent-foreground)]"}`}
             >
               {option.icon}
               {option.label}
@@ -212,8 +269,17 @@ function SyncStatus({
 
   return (
     <div className="flex flex-wrap items-center gap-3" role="status" aria-live="polite">
-      <span className={status === "error" ? "text-[length:var(--text-label)] text-[color:var(--danger)]" : "text-[length:var(--text-label)] text-[color:var(--fg-muted)]"}>{label}</span>
+      <span className={status === "error" ? "text-[length:var(--text-label)] text-[color:var(--destructive)]" : "text-[length:var(--text-label)] text-[color:var(--muted-foreground)]"}>{label}</span>
       {status === "error" ? <Button type="button" variant="secondary" size="sm" onClick={onRetry}>重试同步</Button> : null}
     </div>
   );
+}
+
+function parseAccentDraft(value: string): string | null | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return normalizeAccentColor(trimmed) ?? undefined;
 }

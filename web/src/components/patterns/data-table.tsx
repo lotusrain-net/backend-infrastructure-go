@@ -1,16 +1,13 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { PaginationControls, type PageMeta } from "@/components/patterns/pagination-controls";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export interface PageMeta {
-  page: number;
-  size: number;
-  total: number;
-  pages: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
+export type { PageMeta } from "@/components/patterns/pagination-controls";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -45,81 +42,64 @@ export function DataTable<T>({
   const columnCount = Math.max(columns.length, 1);
 
   return (
-    <section className="overflow-hidden border border-[color:var(--border-subtle)] bg-[color:var(--surface)] [border-radius:var(--radius-lg)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-4 py-3">
-        <p aria-live="polite" className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
+    <Card className="overflow-hidden p-0 shadow-none sm:p-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border)] px-4 py-3">
+        <p aria-live="polite" className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">
           共 {page.total} 条记录
         </p>
-        <p className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
+        <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">
           第 {page.page} / {Math.max(page.pages, 1)} 页
         </p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-[length:var(--text-body-sm)]">
-          <thead className="bg-[color:var(--surface-subtle)] text-[length:var(--text-caption)] text-[color:var(--fg-muted)]">
-            <tr>
-              {columns.map((column) => (
-                <th key={column.key} scope="col" className="whitespace-nowrap px-4 py-3 font-semibold">
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <LoadingRows columnCount={columnCount} />
-            ) : error ? (
-              <tr>
-                <td colSpan={columnCount} className="px-4 py-10">
-                  <div role="alert" className="border-l-2 border-[color:var(--danger)] bg-[color:var(--danger-subtle)] px-4 py-3 text-[color:var(--danger)]">
-                    {error}
-                  </div>
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={columnCount} className="px-4 py-12 text-center">
-                  <div role="status" className="mx-auto max-w-md space-y-1">
-                    <p className="font-medium text-[color:var(--fg-default)]">{emptyTitle}</p>
-                    <p className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">{emptyDescription}</p>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <tr key={rowKey(row)} className="border-t border-[color:var(--border-subtle)] hover:bg-[color:var(--surface-hover)]">
-                  {columns.map((column) => (
-                    <td key={column.key} className={`px-4 py-3 text-[color:var(--fg-default)] ${column.className ?? ""}`}>
-                      {column.render(row)}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Table className="min-w-full">
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            {columns.map((column) => (
+              <TableHead key={column.key} scope="col" className={column.className}>
+                {column.label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? (
+            <LoadingRows columnCount={columnCount} />
+          ) : error ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={columnCount} className="py-10">
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              </TableCell>
+            </TableRow>
+          ) : rows.length === 0 ? (
+            <TableRow className="hover:bg-transparent">
+              <TableCell colSpan={columnCount} className="py-12 text-center">
+                <div role="status" className="mx-auto max-w-md space-y-1">
+                  <p className="font-medium">{emptyTitle}</p>
+                  <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">{emptyDescription}</p>
+                </div>
+              </TableCell>
+            </TableRow>
+          ) : (
+            rows.map((row) => (
+              <TableRow key={rowKey(row)}>
+                {columns.map((column) => (
+                  <TableCell key={column.key} className={column.className}>
+                    {column.render(row)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
 
       {onPageChange ? (
-        <nav aria-label="分页" className="flex items-center justify-end gap-2 border-t border-[color:var(--border-subtle)] px-4 py-3">
-          <PaginationButton
-            label="上一页"
-            disabled={!page.has_prev}
-            onClick={() => onPageChange(page.page - 1)}
-          >
-            <ChevronLeft aria-hidden="true" className="h-4 w-4" />
-          </PaginationButton>
-          <PaginationButton
-            label="下一页"
-            disabled={!page.has_next}
-            onClick={() => onPageChange(page.page + 1)}
-          >
-            <ChevronRight aria-hidden="true" className="h-4 w-4" />
-          </PaginationButton>
-        </nav>
+        <PaginationControls className="border-t border-[color:var(--border)] px-4 py-3" page={page} onPageChange={onPageChange} />
       ) : null}
-    </section>
+    </Card>
   );
 }
 
@@ -127,39 +107,14 @@ function LoadingRows({ columnCount }: { columnCount: number }) {
   return (
     <>
       {Array.from({ length: 5 }, (_, index) => (
-        <tr key={index} className="border-t border-[color:var(--border-subtle)]" aria-busy="true">
+        <TableRow key={index} aria-busy="true" className="hover:bg-transparent">
           {Array.from({ length: columnCount }, (_, cellIndex) => (
-            <td key={cellIndex} className="px-4 py-3">
-              <span className="block h-4 w-4/5 animate-pulse bg-[color:var(--surface-subtle)]" />
-            </td>
+            <TableCell key={cellIndex}>
+              <Skeleton className="h-4 w-4/5" />
+            </TableCell>
           ))}
-        </tr>
+        </TableRow>
       ))}
     </>
-  );
-}
-
-function PaginationButton({
-  children,
-  disabled,
-  label,
-  onClick,
-}: {
-  children: ReactNode;
-  disabled: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="inline-flex h-9 w-9 items-center justify-center border border-[color:var(--border-strong)] text-[color:var(--fg-default)] transition-colors [border-radius:var(--radius-md)] hover:bg-[color:var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-45"
-    >
-      {children}
-    </button>
   );
 }

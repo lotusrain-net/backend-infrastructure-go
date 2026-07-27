@@ -41,6 +41,33 @@ describe("account appearance preferences", () => {
     expect(document.documentElement.style.getPropertyValue("--accent-primary")).toBe("#1A2B3C");
   });
 
+  it("applies a seed-derived full palette and clears every override when the seed is reset", () => {
+    const seeded = createAppearancePreferences({
+      theme: "cyberpunk",
+      color_mode: "dark",
+      accent_color: "#FF00AA",
+    });
+
+    switchThemeUser("user-1");
+    previewPreferences("user-1", seeded);
+
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--background")).not.toBe("");
+    expect(root.style.getPropertyValue("--card")).not.toBe("");
+    expect(root.style.getPropertyValue("--popover")).not.toBe("");
+    expect(root.style.getPropertyValue("--input")).not.toBe("");
+    expect(root.style.getPropertyValue("--border")).not.toBe("");
+    expect(root.style.getPropertyValue("--sidebar")).not.toBe("");
+    expect(root.style.getPropertyValue("--chart-2")).not.toBe("");
+    expect(root.style.getPropertyValue("--primary")).not.toBe("");
+
+    applyRemotePreferences("user-1", createAppearancePreferences({ ...seeded, accent_color: null }));
+
+    for (const property of ["--background", "--card", "--popover", "--input", "--border", "--sidebar", "--chart-2", "--primary"]) {
+      expect(root.style.getPropertyValue(property)).toBe("");
+    }
+  });
+
   it("retains the local preview and records a retryable failure", () => {
     const preview = createAppearancePreferences({ accent_color: "#1A2B3C" });
 

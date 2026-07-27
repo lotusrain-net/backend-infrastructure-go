@@ -17,6 +17,7 @@ interface AppearancePreferencesContextValue {
   preferences: AccountPreferences;
   syncStatus: PreferenceSyncStatus;
   syncError: string | null;
+  previewPreferences: (changes: Partial<AccountPreferences>) => void;
   updatePreferences: (changes: Partial<AccountPreferences>) => void;
   retry: () => void;
 }
@@ -36,6 +37,7 @@ export function AppearancePreferencesProvider({
   const failureKind = useThemeStore((state) => state.failureKind);
   const pendingPreferences = useThemeStore((state) => state.pendingPreferences);
   const switchUser = useThemeStore((state) => state.switchUser);
+  const previewLocal = useThemeStore((state) => state.previewLocal);
   const preview = useThemeStore((state) => state.preview);
   const applyRemote = useThemeStore((state) => state.applyRemote);
   const markSyncFailed = useThemeStore((state) => state.markSyncFailed);
@@ -54,7 +56,8 @@ export function AppearancePreferencesProvider({
   }, [switchUser, userID]);
 
   React.useEffect(() => {
-    if (query.data && !getThemeState().pendingPreferences) {
+    const state = getThemeState();
+    if (query.data && !state.pendingPreferences && !state.isPreviewing) {
       applyRemote(userID, query.data);
     }
   }, [applyRemote, query.data, userID]);
@@ -79,14 +82,16 @@ export function AppearancePreferencesProvider({
       .then((serverPreferences) => {
         // A newer preview is queued while this request is in flight. Do not let
         // this older response repaint the interface before the newer PUT runs.
-        if (!queuedPreferences.current && getThemeState().userID === userID) {
+        const state = getThemeState();
+        if (!queuedPreferences.current && !state.isPreviewing && state.userID === userID) {
           applyRemote(userID, serverPreferences);
         }
       })
       .catch((error: unknown) => {
         // An obsolete request should not surface an error while a newer complete
         // preference payload is already queued for synchronization.
-        if (!queuedPreferences.current && getThemeState().userID === userID) {
+        const state = getThemeState();
+        if (!queuedPreferences.current && !state.isPreviewing && state.userID === userID) {
           markSyncFailed(userID, error, "save");
         }
       })
@@ -101,6 +106,18 @@ export function AppearancePreferencesProvider({
   React.useEffect(() => {
     flushQueueRef.current = flushQueue;
   }, [flushQueue]);
+
+  const previewPreferences = React.useCallback(
+    (changes: Partial<AccountPreferences>) => {
+      const state = getThemeState();
+      if (state.userID !== userID) {
+        return;
+      }
+
+      previewLocal(userID, createAppearancePreferences({ ...state.preferences, ...changes }));
+    },
+    [previewLocal, userID],
+  );
 
   const updatePreferences = React.useCallback(
     (changes: Partial<AccountPreferences>) => {
@@ -132,8 +149,8 @@ export function AppearancePreferencesProvider({
   }, [failureKind, markSyncing, pendingPreferences, query, switchUser, userID]);
 
   const value = React.useMemo(
-    () => ({ preferences, syncStatus, syncError, updatePreferences, retry }),
-    [preferences, retry, syncError, syncStatus, updatePreferences],
+    () => ({ preferences, syncStatus, syncError, previewPreferences, updatePreferences, retry }),
+    [preferences, previewPreferences, retry, syncError, syncStatus, updatePreferences],
   );
 
   return <AppearancePreferencesContext.Provider value={value}>{children}</AppearancePreferencesContext.Provider>;

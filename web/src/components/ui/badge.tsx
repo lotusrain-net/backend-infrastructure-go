@@ -2,14 +2,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-const badgeVariants = cva("inline-flex items-center border px-2 py-0.5 text-[length:var(--text-caption)] font-medium [border-radius:var(--radius-sm)]", {
+const badgeVariants = cva("inline-flex w-fit items-center gap-1 border px-2 py-0.5 text-[length:var(--text-caption)] font-medium [border-radius:var(--radius-sm)]", {
   variants: {
     variant: {
-      neutral: "border-[color:var(--border-strong)] bg-[color:var(--surface-subtle)] text-[color:var(--fg-muted)]",
-      info: "border-[color:var(--accent-primary)]/40 bg-[color:var(--accent-primary-subtle)] text-[color:var(--accent-primary)]",
-      success: "border-[color:var(--success)]/45 bg-[color:var(--success-subtle)] text-[color:var(--success)]",
-      warning: "border-[color:var(--warning)]/45 bg-[color:var(--warning-subtle)] text-[color:var(--warning)]",
-      danger: "border-[color:var(--danger)]/45 bg-[color:var(--danger-subtle)] text-[color:var(--danger)]",
+      neutral: "border-[color:var(--input)] bg-[color:var(--muted)] text-[color:var(--muted-foreground)]",
+      info: "border-[color:var(--primary)] bg-[color:var(--primary-subtle)] text-[color:var(--primary-subtle-foreground)]",
+      success: "border-[color:var(--success)] bg-[color:var(--success-subtle)] text-[color:var(--success-subtle-foreground)]",
+      warning: "border-[color:var(--warning)] bg-[color:var(--warning-subtle)] text-[color:var(--warning-subtle-foreground)]",
+      danger: "border-[color:var(--destructive)] bg-[color:var(--destructive-subtle)] text-[color:var(--destructive-subtle-foreground)]",
     },
   },
   defaultVariants: { variant: "neutral" },

@@ -1,16 +1,28 @@
 "use client";
 
-import * as Dialog from "@radix-ui/react-dialog";
-import { Button } from "@/components/ui/button";
+import { useState, type MouseEvent } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type { ButtonProps } from "@/components/ui/button";
 
 interface ConfirmationDialogProps {
   title?: string;
   description?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   cancelLabel?: string;
   confirmLabel?: string;
+  confirmVariant?: Extract<NonNullable<ButtonProps["variant"]>, "default" | "destructive">;
+  pending?: boolean;
 }
 
 export function ConfirmationDialog({
@@ -21,28 +33,43 @@ export function ConfirmationDialog({
   onConfirm,
   cancelLabel = "取消",
   confirmLabel = "确认",
+  confirmVariant = "destructive",
+  pending = false,
 }: ConfirmationDialogProps) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const isBusy = pending || isConfirming;
+
+  async function handleConfirm(event: MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    if (isBusy) {
+      return;
+    }
+
+    setIsConfirming(true);
+    try {
+      await onConfirm();
+      onOpenChange(false);
+    } catch {
+      // The caller owns domain-specific feedback and the dialog remains open.
+    } finally {
+      setIsConfirming(false);
+    }
+  }
+
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(28rem,90vw)] -translate-x-1/2 -translate-y-1/2 border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-6 shadow-xl [border-radius:var(--radius-lg)]">
-          <Dialog.Title className="text-[length:var(--text-heading)] font-semibold text-[color:var(--fg-default)]">
-            {title}
-          </Dialog.Title>
-          <Dialog.Description className="mt-2 text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
-            {description}
-          </Dialog.Description>
-          <div className="mt-6 flex justify-end gap-3">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              {cancelLabel}
-            </Button>
-            <Button variant="danger" onClick={onConfirm}>
-              {confirmLabel}
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <AlertDialog open={open} onOpenChange={(nextOpen) => { if (!isBusy) onOpenChange(nextOpen); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isBusy}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogAction variant={confirmVariant} disabled={isBusy} onClick={handleConfirm}>
+            {isBusy ? "处理中..." : confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

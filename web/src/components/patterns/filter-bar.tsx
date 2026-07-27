@@ -2,6 +2,11 @@
 
 import { RotateCcw, Search } from "lucide-react";
 import type { ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface FilterBarProps {
   keyword: string;
@@ -14,6 +19,8 @@ interface FilterBarProps {
   children?: ReactNode;
 }
 
+const pageSizes = [10, 20, 50, 100] as const;
+
 export function FilterBar({
   keyword,
   pageSize,
@@ -25,45 +32,43 @@ export function FilterBar({
   children,
 }: FilterBarProps) {
   return (
-    <div className="flex flex-wrap items-end gap-3 border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-4 [border-radius:var(--radius-lg)]">
-      <label className="grid min-w-[14rem] flex-1 gap-1.5">
-        <span className="text-[length:var(--text-caption)] font-medium text-[color:var(--fg-muted)]">{keywordLabel}</span>
-        <span className="relative">
-          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--fg-muted)]" />
-          <input
+    <Card className="grid grid-cols-1 items-end gap-3 p-4 shadow-none sm:flex sm:flex-wrap sm:p-4">
+      <div className="grid min-w-0 w-full gap-1.5 sm:min-w-[14rem] sm:flex-1">
+        <Label htmlFor="filter-keyword">{keywordLabel}</Label>
+        <div className="relative">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--muted-foreground)]" />
+          <Input
+            id="filter-keyword"
             value={keyword}
             onChange={(event) => onKeywordChange(event.target.value)}
             placeholder={keywordPlaceholder}
-            className="h-10 w-full border border-[color:var(--border-strong)] bg-[color:var(--surface)] py-2 pl-9 pr-3 text-[length:var(--text-body-sm)] text-[color:var(--fg-default)] outline-none [border-radius:var(--radius-md)] placeholder:text-[color:var(--fg-muted)] focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+            className="pl-9"
           />
-        </span>
-      </label>
+        </div>
+      </div>
 
-      {children}
+      {children ? <div className="min-w-0 w-full sm:w-auto">{children}</div> : null}
 
-      <label className="grid gap-1.5">
-        <span className="text-[length:var(--text-caption)] font-medium text-[color:var(--fg-muted)]">每页数量</span>
-        <select
-          value={pageSize}
-          onChange={(event) => onPageSizeChange(Number(event.target.value))}
-          className="h-10 border border-[color:var(--border-strong)] bg-[color:var(--surface)] px-3 text-[length:var(--text-body-sm)] text-[color:var(--fg-default)] outline-none [border-radius:var(--radius-md)] focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
-        >
-          {[10, 20, 50, 100].map((size) => (
-            <option key={size} value={size}>
-              {size} 条
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="grid w-full gap-1.5 sm:w-auto">
+        <Label htmlFor="filter-page-size">每页数量</Label>
+        <Select value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))}>
+          <SelectTrigger id="filter-page-size" className="w-full sm:w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {pageSizes.map((size) => (
+              <SelectItem key={size} value={String(size)}>
+                {size} 条
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-      <button
-        type="button"
-        onClick={onReset}
-        className="inline-flex h-10 items-center gap-2 border border-[color:var(--border-strong)] px-3 text-[length:var(--text-label)] font-medium text-[color:var(--fg-default)] transition-colors [border-radius:var(--radius-md)] hover:bg-[color:var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
-      >
-        <RotateCcw aria-hidden="true" className="h-4 w-4" />
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onReset}>
+        <RotateCcw aria-hidden="true" className="size-4" />
         重置
-      </button>
-    </div>
+      </Button>
+    </Card>
   );
 }

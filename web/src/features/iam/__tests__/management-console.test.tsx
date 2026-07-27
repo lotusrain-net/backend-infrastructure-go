@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionsConsole, RolesConsole, UsersConsole } from "@/features/iam/console";
 
@@ -45,7 +46,7 @@ describe("IAM management consoles", () => {
     hooks.search = "";
     hooks.usersQuery.mockReturnValue({
       data: {
-        items: [{ id: "u1", email: "ops@example.com", username: "ops", display_name: "Operations", is_active: true, roles: [{ id: "r1", name: "operator", description: "", is_system: false }] }],
+        items: [{ id: "u1", email: "ops@example.com", username: "ops", display_name: "Operations", is_active: true, roles: [{ id: "r2", name: "operator", description: "", is_system: false }] }],
         meta: page,
       },
       isPending: false,
@@ -65,6 +66,22 @@ describe("IAM management consoles", () => {
     expect(screen.getByRole("button", { name: "重置 Operations 的密码" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "分配 Operations 的角色" })).toBeTruthy();
     expect(screen.getByText("operator")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "首页" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "末页" })).toBeTruthy();
+  });
+
+  it("opens shared form controls and checkbox assignments for user management", async () => {
+    const user = userEvent.setup();
+    render(<UsersConsole />);
+
+    await user.click(screen.getByRole("button", { name: "创建用户" }));
+    expect(screen.getByRole("dialog", { name: "创建用户" })).toBeTruthy();
+    expect(screen.getByLabelText("邮箱")).toBeTruthy();
+    expect(screen.getByLabelText("初始密码")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "关闭" }));
+    await user.click(screen.getByRole("button", { name: "分配 Operations 的角色" }));
+    expect(screen.getByRole("checkbox", { name: /operator/i }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("keeps user filters in the URL and resets pagination after a filter changes", async () => {

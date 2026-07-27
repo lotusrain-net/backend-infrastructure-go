@@ -2,7 +2,7 @@ import { create } from "zustand";
 import {
   createAppearancePreferences,
   DEFAULT_ACCOUNT_PREFERENCES,
-  deriveAccentTokens,
+  deriveThemeTokens,
   parseAppearancePreferences,
   type ResolvedColorMode,
 } from "@/features/preferences/appearance";
@@ -11,11 +11,6 @@ import type { AccountPreferences, ColorMode } from "@/types/api";
 export { createAppearancePreferences } from "@/features/preferences/appearance";
 
 const CACHE_PREFIX = "backend-infra-appearance";
-const surfaceColors = {
-  enterprise: { light: "#FFFFFF", dark: "#182330" },
-  cyberpunk: { light: "#FFFFFF", dark: "#0D1521" },
-} as const;
-
 export type PreferenceSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
 export type PreferenceFailureKind = "load" | "save" | null;
 
@@ -26,7 +21,9 @@ export interface ThemeState {
   syncError: string | null;
   failureKind: PreferenceFailureKind;
   pendingPreferences: AccountPreferences | null;
+  isPreviewing: boolean;
   switchUser: (userID: string) => void;
+  previewLocal: (userID: string, preferences: AccountPreferences) => void;
   preview: (userID: string, preferences: AccountPreferences) => void;
   applyRemote: (userID: string, preferences: AccountPreferences) => void;
   markSyncFailed: (userID: string, error: unknown, kind?: Exclude<PreferenceFailureKind, null>) => void;
@@ -41,6 +38,7 @@ const defaultState = {
   syncError: null as string | null,
   failureKind: null as PreferenceFailureKind,
   pendingPreferences: null as AccountPreferences | null,
+  isPreviewing: false,
 };
 
 function resolveColorMode(colorMode: ColorMode): ResolvedColorMode {
@@ -69,31 +67,90 @@ function applyPreferences(preferences: AccountPreferences) {
   root.classList.toggle("dark", resolvedColorMode === "dark");
 
   if (preferences.accent_color) {
-    const tokens = deriveAccentTokens(
+    const tokens = deriveThemeTokens(
       preferences.accent_color,
-      surfaceColors[preferences.theme][resolvedColorMode],
+      preferences.theme,
       resolvedColorMode,
     );
-    root.style.setProperty("--accent-primary", tokens.primary);
-    root.style.setProperty("--accent-primary-hover", tokens.hover);
-    root.style.setProperty("--accent-primary-subtle", tokens.subtle);
-    root.style.setProperty("--accent-contrast", tokens.contrast);
-    root.style.setProperty("--focus-ring", tokens.focus);
-    root.style.setProperty("--chart-primary", tokens.primary);
+    for (const [property, value] of Object.entries(themeTokenProperties(tokens))) {
+      root.style.setProperty(property, value);
+    }
     return;
   }
 
-  for (const property of [
-    "--accent-primary",
-    "--accent-primary-hover",
-    "--accent-primary-subtle",
-    "--accent-contrast",
-    "--focus-ring",
-    "--chart-primary",
-  ]) {
+  for (const property of seededThemeProperties) {
     root.style.removeProperty(property);
   }
 }
+
+/**
+ * Canonical semantic variables are set first. Legacy aliases are written from
+ * the same source so existing screens keep following the one token palette
+ * while their UI primitives are migrated.
+ */
+function themeTokenProperties(tokens: ReturnType<typeof deriveThemeTokens>): Record<string, string> {
+  return {
+    "--background": tokens.canvas,
+    "--foreground": tokens.foreground,
+    "--card": tokens.card,
+    "--card-foreground": tokens.cardForeground,
+    "--popover": tokens.popover,
+    "--popover-foreground": tokens.popoverForeground,
+    "--primary": tokens.primary,
+    "--primary-foreground": tokens.primaryForeground,
+    "--primary-hover": tokens.primaryHover,
+    "--primary-subtle": tokens.primarySubtle,
+    "--primary-subtle-foreground": tokens.primary,
+    "--secondary": tokens.secondary,
+    "--secondary-foreground": tokens.secondaryForeground,
+    "--muted": tokens.muted,
+    "--muted-foreground": tokens.mutedForeground,
+    "--accent": tokens.accent,
+    "--accent-foreground": tokens.accentForeground,
+    "--border": tokens.border,
+    "--input": tokens.input,
+    "--input-background": tokens.inputBackground,
+    "--ring": tokens.focus,
+    "--sidebar": tokens.sidebar,
+    "--sidebar-foreground": tokens.sidebarForeground,
+    "--sidebar-muted": tokens.mutedForeground,
+    "--sidebar-primary": tokens.sidebarPrimary,
+    "--sidebar-primary-foreground": tokens.sidebarPrimaryForeground,
+    "--sidebar-accent": tokens.sidebarAccent,
+    "--sidebar-accent-foreground": tokens.sidebarAccentForeground,
+    "--sidebar-border": tokens.sidebarBorder,
+    "--sidebar-ring": tokens.sidebarRing,
+    "--chart-1": tokens.chartPrimary,
+    "--chart-2": tokens.chartSecondary,
+    "--chart-3": tokens.chartTertiary,
+    "--chart-4": tokens.chartQuaternary,
+    "--chart-5": tokens.chartQuinary,
+    "--surface-raised": tokens.surfaceRaised,
+    "--shadow-color": tokens.shadowColor,
+    "--shadow-card": `0 1px 2px ${tokens.shadowColor}, 0 10px 28px ${tokens.shadowColor}`,
+    "--shadow-popover": `0 14px 32px ${tokens.shadowColor}`,
+    "--shadow-dialog": `0 22px 64px ${tokens.shadowColor}`,
+
+    // Transitional aliases for components still using the original tokens.
+    "--canvas": tokens.canvas,
+    "--surface": tokens.surface,
+    "--surface-subtle": tokens.surfaceSubtle,
+    "--surface-hover": tokens.surfaceHover,
+    "--fg-default": tokens.foreground,
+    "--fg-muted": tokens.mutedForeground,
+    "--fg-inverse": tokens.inverse,
+    "--border-subtle": tokens.border,
+    "--border-strong": tokens.borderStrong,
+    "--accent-primary": tokens.primary,
+    "--accent-primary-hover": tokens.primaryHover,
+    "--accent-primary-subtle": tokens.primarySubtle,
+    "--accent-contrast": tokens.primaryForeground,
+    "--focus-ring": tokens.focus,
+    "--chart-primary": tokens.chartPrimary,
+  };
+}
+
+const seededThemeProperties = Object.keys(themeTokenProperties(deriveThemeTokens("#1A2B3C", "enterprise", "light")));
 
 function getCachedPreferences(userID: string): AccountPreferences | null {
   if (typeof window === "undefined") {
@@ -131,8 +188,25 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       syncError: null,
       failureKind: null,
       pendingPreferences: null,
+      isPreviewing: false,
     });
     applyPreferences(preferences);
+  },
+  previewLocal: (userID, preferences) => {
+    if (get().userID !== userID) {
+      return;
+    }
+
+    const normalized = createAppearancePreferences(preferences);
+    set({
+      preferences: normalized,
+      syncStatus: "idle",
+      syncError: null,
+      failureKind: null,
+      pendingPreferences: null,
+      isPreviewing: true,
+    });
+    applyPreferences(normalized);
   },
   preview: (userID, preferences) => {
     if (get().userID !== userID) {
@@ -147,6 +221,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       syncError: null,
       failureKind: null,
       pendingPreferences: normalized,
+      isPreviewing: false,
     });
     applyPreferences(normalized);
   },
@@ -163,11 +238,12 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       syncError: null,
       failureKind: null,
       pendingPreferences: null,
+      isPreviewing: false,
     });
     applyPreferences(normalized);
   },
   markSyncFailed: (userID, error, kind = "save") => {
-    if (get().userID !== userID) {
+    if (get().userID !== userID || get().isPreviewing) {
       return;
     }
 
@@ -179,7 +255,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
   markSyncing: (userID) => {
     if (get().userID === userID) {
-      set({ syncStatus: "syncing", syncError: null, failureKind: null });
+      set({ syncStatus: "syncing", syncError: null, failureKind: null, isPreviewing: false });
     }
   },
   clearActiveUser: () => {

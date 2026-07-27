@@ -1,30 +1,25 @@
 "use client";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Menu, UserCircle2 } from "lucide-react";
+import { LogOut, ServerCog, UserCircle2 } from "lucide-react";
 import { ThemeControls } from "@/components/layout/theme-controls";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { appNavigation, type NavigationItem } from "@/config/navigation";
 import { useLogoutMutation } from "@/features/auth/api";
+import { filterNavigation } from "@/lib/rbac";
 import { useAuthStore } from "@/stores/auth-store";
 
-const pageTitles: Array<[string, string]> = [
-  ["/iam/users", "用户"],
-  ["/iam/roles", "角色"],
-  ["/iam/permissions", "权限"],
-  ["/audit", "审计日志"],
-  ["/tasks", "任务执行"],
-  ["/profile", "个人资料"],
-  ["/dashboard", "概览"],
-];
-
-export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
+export function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const logout = useLogoutMutation();
-  const title = pageTitles.find(([route]) => pathname.startsWith(route))?.[1] ?? "平台控制台";
+  const navigation = flattenNavigation(filterNavigation(appNavigation, { permissions: user?.permissions ?? [] }));
+  const displayName = user?.display_name || user?.username || "当前会话";
+  const avatarInitial = displayName.trim().slice(0, 1).toLocaleUpperCase() || "会";
 
   async function handleLogout() {
     try {
@@ -35,50 +30,86 @@ export function Header({ onOpenMobileNav }: { onOpenMobileNav: () => void }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[color:var(--border-subtle)] bg-[color:var(--surface-raised)] px-4 lg:px-6">
-      <div className="flex min-w-0 items-center gap-3">
-        <Button variant="ghost" size="icon" className="lg:hidden" onClick={onOpenMobileNav} aria-label="打开导航" title="打开导航">
-          <Menu aria-hidden="true" className="h-5 w-5" />
-        </Button>
-        <div className="min-w-0">
-          <p className="truncate text-xs text-[color:var(--fg-muted)]">基础设施控制台</p>
-          <p className="truncate text-sm font-semibold text-[color:var(--fg-default)]">{title}</p>
+    <header className="sticky top-0 z-30 h-14 border-b border-[color:var(--border)] bg-[color:var(--popover)] px-4 lg:px-6">
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <SidebarTrigger />
+          <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5 rounded-[var(--radius-md)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]">
+            <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center bg-[color:var(--primary-subtle)] text-[color:var(--primary)] [border-radius:var(--radius-md)]">
+              <ServerCog className="size-4" />
+            </span>
+            <span className="truncate text-[length:var(--text-body-sm)] font-semibold text-[color:var(--foreground)]">基础设施控制台</span>
+          </Link>
         </div>
-      </div>
 
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <Button variant="ghost" size="sm" className="max-w-[13rem]">
-            <UserCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
-            <span className="truncate">{user?.display_name || user?.username || "会话"}</span>
-          </Button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content align="end" sideOffset={8} className="z-50 w-72 border border-[color:var(--border-subtle)] bg-[color:var(--surface-raised)] p-3 shadow-[0_10px_24px_var(--shadow-color)]">
-            <div className="border-b border-[color:var(--border-subtle)] pb-3">
-              <p className="text-sm font-medium text-[color:var(--fg-default)]">{user?.display_name || user?.username || "当前会话"}</p>
-              <p className="mt-1 truncate text-sm text-[color:var(--fg-muted)]">{user?.email}</p>
-            </div>
-            <div className="py-3">
-              <ThemeControls />
-            </div>
-            <div className="border-t border-[color:var(--border-subtle)] pt-2">
-              <DropdownMenu.Item asChild>
-                <Link href="/profile" className="flex h-9 items-center gap-2 px-2 text-sm text-[color:var(--fg-default)] outline-none hover:bg-[color:var(--surface-hover)] focus:bg-[color:var(--surface-hover)]">
+        <nav aria-label="快捷导航" className="hidden items-center justify-center gap-1 xl:flex">
+          {navigation.map((item) => {
+            const active = isActiveRoute(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`border-b-2 px-2.5 py-2 text-[length:var(--text-label)] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] ${
+                  active
+                    ? "border-[color:var(--primary)] text-[color:var(--foreground)]"
+                    : "border-transparent text-[color:var(--muted-foreground)] hover:text-[color:var(--foreground)]"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="flex min-w-0 items-center justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="[border-radius:var(--radius-full)]"
+                aria-label={`打开${displayName}的账户菜单`}
+                title={`打开${displayName}的账户菜单`}
+              >
+                <span aria-hidden="true" className="flex size-7 items-center justify-center bg-[color:var(--primary)] text-[length:var(--text-caption)] font-semibold text-[color:var(--primary-foreground)] [border-radius:var(--radius-full)]">
+                  {avatarInitial}
+                </span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-72 p-3">
+              <div className="border-b border-[color:var(--border)] pb-3">
+                <p className="text-[length:var(--text-body-sm)] font-medium text-[color:var(--foreground)]">{displayName}</p>
+                <p className="mt-1 truncate text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">{user?.email}</p>
+              </div>
+              <div className="py-3">
+                <ThemeControls />
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="flex items-center gap-2">
                   <UserCircle2 aria-hidden="true" className="h-4 w-4" />
                   个人资料
                 </Link>
-              </DropdownMenu.Item>
-              <DropdownMenu.Item asChild>
-                <button type="button" onClick={handleLogout} disabled={logout.isPending} className="flex h-9 w-full items-center gap-2 px-2 text-left text-sm text-[color:var(--danger)] outline-none hover:bg-[color:var(--danger-subtle)] focus:bg-[color:var(--danger-subtle)] disabled:opacity-50">
-                  <LogOut aria-hidden="true" className="h-4 w-4" />
-                  退出登录
-                </button>
-              </DropdownMenu.Item>
-            </div>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLogout} disabled={logout.isPending} className="text-[color:var(--destructive)] data-[highlighted]:bg-[color:var(--destructive-subtle)] data-[highlighted]:text-[color:var(--destructive-subtle-foreground)]">
+                <LogOut aria-hidden="true" className="h-4 w-4" />
+                退出登录
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
     </header>
   );
+}
+
+function flattenNavigation(items: NavigationItem[]) {
+  return items
+    .flatMap((item) => item.children?.length ? item.children : [item])
+    .filter((item) => item.href !== "/profile");
+}
+
+function isActiveRoute(pathname: string, href: string) {
+  return pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
 }

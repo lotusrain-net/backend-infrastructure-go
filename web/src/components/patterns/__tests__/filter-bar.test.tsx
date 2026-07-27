@@ -36,4 +36,24 @@ describe("FilterBar", () => {
     expect(onChange).toHaveBeenLastCalledWith("operator");
     expect(screen.getByTestId("keyword").textContent).toBe("operator");
   });
+
+  it("uses the shared accessible select for page size", async () => {
+    const user = userEvent.setup();
+    const onPageSizeChange = vi.fn();
+
+    render(
+      <FilterBar
+        keyword=""
+        pageSize={20}
+        onKeywordChange={vi.fn()}
+        onPageSizeChange={onPageSizeChange}
+        onReset={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "每页数量" }));
+    await user.click(screen.getByRole("option", { name: "50 条" }));
+
+    expect(onPageSizeChange).toHaveBeenCalledWith(50);
+  });
 });

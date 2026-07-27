@@ -42,10 +42,10 @@ export function Dashboard() {
           <Badge variant={health.isError ? "danger" : health.isPending ? "neutral" : "success"}>{health.isError ? "需检查" : health.isPending ? "正在检查" : "已就绪"}</Badge>
         </Metric>
         <Metric title="当前权限" icon={<KeyRound aria-hidden="true" className="h-4 w-4" />} value={`${user?.permissions.length ?? 0} 项`}>
-          <p className="text-sm text-[color:var(--fg-muted)]">按后端授权实时控制导航与页面访问。</p>
+          <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">按后端授权实时控制导航与页面访问。</p>
         </Metric>
         <Metric title="可用模块" icon={<ShieldCheck aria-hidden="true" className="h-4 w-4" />} value={`${visibleModules} 个`}>
-          <p className="text-sm text-[color:var(--fg-muted)]">当前会话可进入的控制台功能。</p>
+          <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">当前会话可进入的控制台功能。</p>
         </Metric>
       </div>
     </div>
@@ -55,8 +55,8 @@ export function Dashboard() {
 function Metric({ title, icon, value, children }: { title: string; icon: ReactNode; value: string; children: ReactNode }) {
   return (
     <Card className="space-y-4">
-      <div className="flex items-center gap-2 text-sm text-[color:var(--fg-muted)]">{icon}{title}</div>
-      <p className="text-2xl font-semibold text-[color:var(--fg-default)]">{value}</p>
+      <div className="flex items-center gap-2 text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">{icon}{title}</div>
+      <p className="text-[length:var(--text-display)] font-semibold text-[color:var(--foreground)]">{value}</p>
       {children}
     </Card>
   );

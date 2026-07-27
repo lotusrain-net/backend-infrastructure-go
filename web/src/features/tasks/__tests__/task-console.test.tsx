@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TaskConsole } from "@/features/tasks/task-console";
@@ -8,6 +8,7 @@ const useTaskExecutionsQuery = vi.fn();
 const useTaskExecutionQuery = vi.fn();
 const useTaskTypesQuery = vi.fn();
 const mutateAsync = vi.fn();
+const toastSuccess = vi.fn();
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/tasks",
@@ -33,6 +34,10 @@ vi.mock("@/features/tasks/api", () => ({
   useTaskExecutionQuery: (...args: unknown[]) => useTaskExecutionQuery(...args),
   useTaskTypesQuery: () => useTaskTypesQuery(),
   useSubmitTaskMutation: () => ({ isPending: false, mutateAsync }),
+}));
+
+vi.mock("@/components/ui/toaster", () => ({
+  toast: { success: (...args: unknown[]) => toastSuccess(...args) },
 }));
 
 describe("TaskConsole", () => {
@@ -91,12 +96,12 @@ describe("TaskConsole", () => {
     const user = userEvent.setup();
     render(<TaskConsole />);
 
-    expect((screen.getByRole("combobox", { name: "任务类型" }) as HTMLSelectElement).value).toBe("system.test");
+    expect(screen.getByRole("combobox", { name: "任务类型" }).textContent).toContain("system.test");
 
     await user.click(screen.getByRole("button", { name: "提交任务" }));
 
-    expect(mutateAsync).toHaveBeenCalledWith({ task_type: "system.test", payload: {} });
-    expect(await screen.findByText("任务 execution-1 已提交。")).toBeTruthy();
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({ task_type: "system.test", payload: {} }));
+    expect(toastSuccess).toHaveBeenCalledWith("任务已提交", { description: "任务 execution-1 已提交。" });
   });
 
   it("keeps URL-backed filters and opens a detail view through the existing task API", async () => {
@@ -109,6 +114,8 @@ describe("TaskConsole", () => {
       task_type: "system.test",
       status: "failed",
     }, true);
+    expect(screen.getByRole("button", { name: "首页" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "末页" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "查看任务执行详情" }));
 

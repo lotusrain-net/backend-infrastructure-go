@@ -18,7 +18,7 @@ export function PermissionGate({ children, permission }: { children: ReactNode; 
 
   if (!allowed) {
     return (
-      <div role="status" className="grid min-h-[16rem] place-items-center text-sm text-[color:var(--fg-muted)]">
+      <div role="status" className="grid min-h-[16rem] place-items-center text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">
         正在检查访问权限...
       </div>
     );

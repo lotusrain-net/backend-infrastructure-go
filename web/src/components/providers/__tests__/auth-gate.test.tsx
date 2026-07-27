@@ -44,6 +44,25 @@ describe("AuthGate", () => {
     expect(screen.queryByText("受保护内容")).toBeNull();
   });
 
+  it("redirects a stale account session whose user no longer exists", async () => {
+    useCurrentUserQuery.mockReturnValue({
+      data: undefined,
+      error: new ApiError("resource not found", 404, 404),
+      isPending: false,
+    });
+
+    render(
+      <AuthGate>
+        <p>受保护内容</p>
+      </AuthGate>,
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/login?next=%2Ftasks");
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("renders children after the current user resolves", () => {
     useCurrentUserQuery.mockReturnValue({
       data: {

@@ -1,21 +1,47 @@
 "use client";
 
-import { useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
-import { Download, Eye, X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Download, Eye } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { DataTable } from "@/components/patterns/data-table";
+import type { PageMeta } from "@/components/patterns/data-table";
 import { FilterBar } from "@/components/patterns/filter-bar";
+import { PaginationControls } from "@/components/patterns/pagination-controls";
 import { type TableQueryCodec, useTableQueryState } from "@/components/patterns/use-table-query-state";
 import { PermissionGate } from "@/components/providers/permission-gate";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useAuditLogsQuery } from "@/features/audit/api";
 import type { AuditEvent, ListAuditLogsParams } from "@/types/api";
 
-const emptyPage = { page: 1, size: 20, total: 0, pages: 0, has_next: false, has_prev: false };
+const emptyPage: PageMeta = { page: 1, size: 20, total: 0, pages: 0, has_next: false, has_prev: false };
+const allAuditResultsValue = "__all_audit_results__";
 const auditResults = new Set(["success", "failure"]);
 
 interface AuditQueryState extends Required<Pick<ListAuditLogsParams, "page" | "size">> {
@@ -118,7 +144,7 @@ export function AuditConsole() {
           description="按主体、资源、操作和时间范围查询平台操作记录。"
           actions={
             <Button type="button" variant="secondary" onClick={exportCurrentPage} disabled={events.length === 0}>
-              <Download aria-hidden="true" className="h-4 w-4" />
+              <Download aria-hidden="true" className="size-4" />
               导出当前页
             </Button>
           }
@@ -132,58 +158,42 @@ export function AuditConsole() {
           onPageSizeChange={(size) => setState({ size })}
           onReset={reset}
         >
-          <AuditFilter label="主体 ID">
-            <Input value={state.actor_id} onChange={(event) => setState({ actor_id: event.target.value })} placeholder="用户 UUID" />
+          <AuditFilter id="audit-actor-filter" label="主体 ID">
+            <Input id="audit-actor-filter" value={state.actor_id} onChange={(event) => setState({ actor_id: event.target.value })} placeholder="用户 UUID" />
           </AuditFilter>
-          <AuditFilter label="操作">
-            <Input value={state.action} onChange={(event) => setState({ action: event.target.value })} placeholder="例如 task.submit" />
+          <AuditFilter id="audit-action-filter" label="操作">
+            <Input id="audit-action-filter" value={state.action} onChange={(event) => setState({ action: event.target.value })} placeholder="例如 task.submit" />
           </AuditFilter>
-          <AuditFilter label="结果">
-            <Select value={state.result} onChange={(event) => setState({ result: event.target.value as AuditQueryState["result"] })}>
-              <option value="">全部</option>
-              <option value="success">成功</option>
-              <option value="failure">失败</option>
+          <AuditFilter id="audit-result-filter" label="结果">
+            <Select value={state.result || allAuditResultsValue} onValueChange={(value) => setState({ result: value === allAuditResultsValue ? "" : value as AuditQueryState["result"] })}>
+              <SelectTrigger id="audit-result-filter"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={allAuditResultsValue}>全部</SelectItem>
+                <SelectItem value="success">成功</SelectItem>
+                <SelectItem value="failure">失败</SelectItem>
+              </SelectContent>
             </Select>
           </AuditFilter>
-          <AuditFilter label="资源类型">
-            <Input value={state.resource_type} onChange={(event) => setState({ resource_type: event.target.value })} placeholder="例如 task_execution" />
+          <AuditFilter id="audit-resource-type-filter" label="资源类型">
+            <Input id="audit-resource-type-filter" value={state.resource_type} onChange={(event) => setState({ resource_type: event.target.value })} placeholder="例如 task_execution" />
           </AuditFilter>
-          <AuditFilter label="资源 ID">
-            <Input value={state.resource_id} onChange={(event) => setState({ resource_id: event.target.value })} />
+          <AuditFilter id="audit-resource-id-filter" label="资源 ID">
+            <Input id="audit-resource-id-filter" value={state.resource_id} onChange={(event) => setState({ resource_id: event.target.value })} />
           </AuditFilter>
-          <AuditFilter label="开始时间">
-            <Input type="datetime-local" value={toDateTimeLocal(state.from)} onChange={(event) => setState({ from: fromDateTimeLocal(event.target.value) })} />
+          <AuditFilter id="audit-from-filter" label="开始时间">
+            <Input id="audit-from-filter" type="datetime-local" value={toDateTimeLocal(state.from)} onChange={(event) => setState({ from: fromDateTimeLocal(event.target.value) })} />
           </AuditFilter>
-          <AuditFilter label="结束时间">
-            <Input type="datetime-local" value={toDateTimeLocal(state.to)} onChange={(event) => setState({ to: fromDateTimeLocal(event.target.value) })} />
+          <AuditFilter id="audit-to-filter" label="结束时间">
+            <Input id="audit-to-filter" type="datetime-local" value={toDateTimeLocal(state.to)} onChange={(event) => setState({ to: fromDateTimeLocal(event.target.value) })} />
           </AuditFilter>
         </FilterBar>
-        <DataTable<AuditEvent>
-          columns={[
-            { key: "created", label: "时间", render: (event) => formatDate(event.created_at) },
-            { key: "action", label: "操作", render: (event) => <code>{event.action}</code> },
-            { key: "actor", label: "主体", render: (event) => event.actor_id ?? "-" },
-            { key: "resource", label: "资源", render: (event) => event.resource_id ? `${event.resource_type} / ${event.resource_id}` : event.resource_type },
-            { key: "result", label: "结果", render: (event) => <Badge variant={event.result === "success" ? "success" : "danger"}>{event.result === "success" ? "成功" : "失败"}</Badge> },
-            { key: "request", label: "请求 ID", render: (event) => <code className="text-xs">{event.request_id}</code> },
-            {
-              key: "actions",
-              label: "操作",
-              render: (event) => (
-                <Button type="button" size="sm" variant="ghost" aria-label="查看审计事件详情" title="查看详情" onClick={() => setSelectedEvent(event)}>
-                  <Eye aria-hidden="true" className="h-4 w-4" />
-                </Button>
-              ),
-            },
-          ]}
+        <AuditEventsTable
           rows={events}
-          rowKey={(event) => event.id}
           page={data?.meta ?? emptyPage}
           isLoading={query.isPending}
           error={query.isError ? (query.error instanceof Error ? query.error.message : "加载审计日志失败。") : null}
-          emptyTitle="暂无审计日志"
-          emptyDescription="当前筛选条件没有匹配的记录。"
           onPageChange={(page) => setState({ page })}
+          onSelect={setSelectedEvent}
         />
       </div>
       <AuditEventDialog event={selectedEvent} onOpenChange={(open) => { if (!open) setSelectedEvent(null); }} />
@@ -191,33 +201,115 @@ export function AuditConsole() {
   );
 }
 
-function AuditFilter({ label, children }: { label: string; children: React.ReactNode }) {
+function AuditFilter({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   return (
-    <label className="grid min-w-[12rem] flex-1 gap-1.5">
-      <span className="text-xs font-medium text-[color:var(--fg-muted)]">{label}</span>
+    <div className="grid min-w-[12rem] flex-1 gap-1.5">
+      <Label htmlFor={id} className="text-[length:var(--text-caption)] text-[color:var(--muted-foreground)]">{label}</Label>
       {children}
-    </label>
+    </div>
+  );
+}
+
+function AuditEventsTable({
+  rows,
+  page,
+  isLoading,
+  error,
+  onPageChange,
+  onSelect,
+}: {
+  rows: AuditEvent[];
+  page: PageMeta;
+  isLoading: boolean;
+  error: string | null;
+  onPageChange: (page: number) => void;
+  onSelect: (event: AuditEvent) => void;
+}) {
+  const columnCount = 7;
+
+  return (
+    <Card className="overflow-hidden p-0 sm:p-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border)] px-5 py-3">
+        <p aria-live="polite" className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">共 {page.total} 条记录</p>
+        <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">第 {page.page} / {Math.max(page.pages, 1)} 页</p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead scope="col">时间</TableHead>
+            <TableHead scope="col">操作</TableHead>
+            <TableHead scope="col">主体</TableHead>
+            <TableHead scope="col">资源</TableHead>
+            <TableHead scope="col">结果</TableHead>
+            <TableHead scope="col">请求 ID</TableHead>
+            <TableHead scope="col">操作</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {isLoading ? <LoadingRows columnCount={columnCount} /> : null}
+          {!isLoading && error ? (
+            <TableRow>
+              <TableCell colSpan={columnCount} className="p-5 sm:p-6">
+                <Alert variant="destructive"><AlertTitle>加载审计日志失败</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
+              </TableCell>
+            </TableRow>
+          ) : null}
+          {!isLoading && !error && rows.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={columnCount} className="p-10 text-center">
+                <div role="status" className="mx-auto max-w-md space-y-1">
+                  <p className="font-medium text-[color:var(--foreground)]">暂无审计日志</p>
+                  <p className="text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]">当前筛选条件没有匹配的记录。</p>
+                </div>
+              </TableCell>
+            </TableRow>
+          ) : null}
+          {!isLoading && !error ? rows.map((event) => (
+            <TableRow key={event.id}>
+              <TableCell>{formatDate(event.created_at)}</TableCell>
+              <TableCell><code className="font-mono">{event.action}</code></TableCell>
+              <TableCell>{event.actor_id ?? "-"}</TableCell>
+              <TableCell>{event.resource_id ? `${event.resource_type} / ${event.resource_id}` : event.resource_type}</TableCell>
+              <TableCell><Badge variant={event.result === "success" ? "success" : "danger"}>{event.result === "success" ? "成功" : "失败"}</Badge></TableCell>
+              <TableCell><code className="font-mono text-[length:var(--text-caption)]">{event.request_id}</code></TableCell>
+              <TableCell>
+                <Button type="button" size="icon" variant="ghost" aria-label="查看审计事件详情" title="查看详情" onClick={() => onSelect(event)}>
+                  <Eye aria-hidden="true" className="size-4" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          )) : null}
+        </TableBody>
+      </Table>
+      <PaginationControls className="border-t border-[color:var(--border)] px-5 py-3" page={page} onPageChange={onPageChange} />
+    </Card>
+  );
+}
+
+function LoadingRows({ columnCount }: { columnCount: number }) {
+  return (
+    <>
+      {Array.from({ length: 5 }, (_, rowIndex) => (
+        <TableRow key={rowIndex} aria-busy="true">
+          {Array.from({ length: columnCount }, (_, cellIndex) => <TableCell key={cellIndex}><Skeleton className="h-4 w-4/5" /></TableCell>)}
+        </TableRow>
+      ))}
+    </>
   );
 }
 
 function AuditEventDialog({ event, onOpenChange }: { event: AuditEvent | null; onOpenChange: (open: boolean) => void }) {
   return (
-    <Dialog.Root open={event !== null} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[min(48rem,92vw)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-5 shadow-xl focus:outline-none">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <Dialog.Title className="text-lg font-semibold text-[color:var(--fg-default)]">审计事件详情</Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-[color:var(--fg-muted)]">事件上下文和记录的元数据。</Dialog.Description>
-            </div>
-            <Button type="button" size="icon" variant="ghost" aria-label="关闭审计事件详情" onClick={() => onOpenChange(false)}>
-              <X aria-hidden="true" className="h-4 w-4" />
-            </Button>
-          </div>
-          {event ? (
+    <Dialog open={event !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(48rem,calc(100vw-2rem))] p-0">
+        <DialogHeader>
+          <DialogTitle>审计事件详情</DialogTitle>
+          <DialogDescription>事件上下文和记录的元数据。</DialogDescription>
+        </DialogHeader>
+        {event ? (
+          <div className="overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">
             <div className="mt-5 space-y-5">
-              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <dl className="grid gap-3 text-[length:var(--text-body-sm)] sm:grid-cols-2">
                 <DetailItem label="事件 ID" value={event.id} />
                 <DetailItem label="请求 ID" value={event.request_id} />
                 <DetailItem label="主体 ID" value={event.actor_id ?? "-"} />
@@ -229,22 +321,22 @@ function AuditEventDialog({ event, onOpenChange }: { event: AuditEvent | null; o
                 <DetailItem label="发生时间" value={formatDate(event.created_at)} />
               </dl>
               <div>
-                <h3 className="text-sm font-medium text-[color:var(--fg-default)]">元数据</h3>
-                <pre className="mt-2 overflow-x-auto border border-[color:var(--border-subtle)] bg-[color:var(--surface-subtle)] p-3 font-mono text-xs leading-5 text-[color:var(--fg-default)]">{formatMetadata(event.metadata)}</pre>
+                <h3 className="text-[length:var(--text-label)] font-medium text-[color:var(--foreground)]">元数据</h3>
+                <pre className="mt-2 overflow-x-auto border border-[color:var(--border)] bg-[color:var(--muted)] p-3 font-mono text-[length:var(--text-caption)] leading-5 text-[color:var(--foreground)] [border-radius:var(--radius-md)]">{formatMetadata(event.metadata)}</pre>
               </div>
             </div>
-          ) : null}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-[color:var(--fg-muted)]">{label}</dt>
-      <dd className="mt-1 break-words text-[color:var(--fg-default)]">{value}</dd>
+      <dt className="text-[length:var(--text-caption)] font-medium text-[color:var(--muted-foreground)]">{label}</dt>
+      <dd className="mt-1 break-words text-[color:var(--foreground)]">{value}</dd>
     </div>
   );
 }
