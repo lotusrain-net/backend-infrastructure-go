@@ -201,6 +201,7 @@ func TestFailureHandlerLogsSyncFailures(t *testing.T) {
 	processor := &processorStub{
 		processErr: errors.New("dependency failed"),
 		failErr:    errors.New("sync failed"),
+		failed:     make(chan struct{}),
 	}
 	failureHandler := NewFailureHandler(processor, logger)
 	server := asynq.NewServerFromRedisClient(redisClient, asynq.Config{
@@ -218,12 +219,14 @@ func TestFailureHandlerLogsSyncFailures(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for !strings.Contains(output.String(), "task failure sync failed") {
-		if time.Now().After(deadline) {
-			t.Fatalf("logs = %s", output.String())
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-processor.failed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for retry exhaustion status sync")
+	}
+	server.Shutdown()
+	if !strings.Contains(output.String(), "task failure sync failed") {
+		t.Fatalf("logs = %s", output.String())
 	}
 }
 

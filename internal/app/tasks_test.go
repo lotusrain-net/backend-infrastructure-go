@@ -53,14 +53,14 @@ func TestRunOutboxDispatcherDrainsImmediatelyAndRetriesFailures(t *testing.T) {
 	if calls := dispatcher.calls.Load(); calls < 2 {
 		t.Fatalf("dispatcher calls = %d, want startup drain and retry", calls)
 	}
-	if !strings.Contains(output.String(), "task outbox dispatch failed") {
-		t.Fatalf("logs = %q", output.String())
-	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("dispatcher loop did not stop after cancellation")
+	}
+	if !strings.Contains(output.String(), "task outbox dispatch failed") {
+		t.Fatalf("logs = %q", output.String())
 	}
 }
 
