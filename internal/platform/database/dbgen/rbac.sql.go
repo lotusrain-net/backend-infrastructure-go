@@ -27,6 +27,77 @@ func (q *Queries) AssignUserRole(ctx context.Context, arg AssignUserRoleParams) 
 	return err
 }
 
+const createRole = `-- name: CreateRole :one
+INSERT INTO roles (name, description)
+VALUES ($1, $2)
+RETURNING id, name, description, created_at, updated_at, is_system
+`
+
+type CreateRoleParams struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func (q *Queries) CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, createRole, arg.Name, arg.Description)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSystem,
+	)
+	return i, err
+}
+
+const deleteRole = `-- name: DeleteRole :execrows
+DELETE FROM roles WHERE id = $1
+`
+
+func (q *Queries) DeleteRole(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRole, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteRolePermissions = `-- name: DeleteRolePermissions :exec
+DELETE FROM role_permissions WHERE role_id = $1
+`
+
+func (q *Queries) DeleteRolePermissions(ctx context.Context, roleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteRolePermissions, roleID)
+	return err
+}
+
+const deleteUserRoles = `-- name: DeleteUserRoles :exec
+DELETE FROM user_roles WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserRoles(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserRoles, userID)
+	return err
+}
+
+const getPermissionByID = `-- name: GetPermissionByID :one
+SELECT id, name, description, created_at FROM permissions WHERE id = $1
+`
+
+func (q *Queries) GetPermissionByID(ctx context.Context, id pgtype.UUID) (Permission, error) {
+	row := q.db.QueryRow(ctx, getPermissionByID, id)
+	var i Permission
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getPermissionByName = `-- name: GetPermissionByName :one
 SELECT id, name, description, created_at FROM permissions WHERE name = $1
 `
@@ -43,8 +114,26 @@ func (q *Queries) GetPermissionByName(ctx context.Context, name string) (Permiss
 	return i, err
 }
 
+const getRoleByID = `-- name: GetRoleByID :one
+SELECT id, name, description, created_at, updated_at, is_system FROM roles WHERE id = $1
+`
+
+func (q *Queries) GetRoleByID(ctx context.Context, id pgtype.UUID) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleByID, id)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSystem,
+	)
+	return i, err
+}
+
 const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name, description, created_at, updated_at FROM roles WHERE name = $1
+SELECT id, name, description, created_at, updated_at, is_system FROM roles WHERE name = $1
 `
 
 func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) {
@@ -56,6 +145,25 @@ func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) 
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsSystem,
+	)
+	return i, err
+}
+
+const getSystemAdminRole = `-- name: GetSystemAdminRole :one
+SELECT id, name, description, created_at, updated_at, is_system FROM roles WHERE name = 'admin' AND is_system = TRUE
+`
+
+func (q *Queries) GetSystemAdminRole(ctx context.Context) (Role, error) {
+	row := q.db.QueryRow(ctx, getSystemAdminRole)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSystem,
 	)
 	return i, err
 }
@@ -105,8 +213,41 @@ func (q *Queries) ListPermissions(ctx context.Context) ([]Permission, error) {
 	return items, nil
 }
 
+const listRolePermissions = `-- name: ListRolePermissions :many
+SELECT permissions.id, permissions.name, permissions.description, permissions.created_at
+FROM permissions
+JOIN role_permissions ON role_permissions.permission_id = permissions.id
+WHERE role_permissions.role_id = $1
+ORDER BY permissions.name
+`
+
+func (q *Queries) ListRolePermissions(ctx context.Context, roleID pgtype.UUID) ([]Permission, error) {
+	rows, err := q.db.Query(ctx, listRolePermissions, roleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Permission{}
+	for rows.Next() {
+		var i Permission
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, description, created_at, updated_at FROM roles ORDER BY name
+SELECT id, name, description, created_at, updated_at, is_system FROM roles ORDER BY name
 `
 
 func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
@@ -124,6 +265,42 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsSystem,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRolesForUser = `-- name: ListRolesForUser :many
+SELECT roles.id, roles.name, roles.description, roles.created_at, roles.updated_at, roles.is_system
+FROM roles
+JOIN user_roles ON user_roles.role_id = roles.id
+WHERE user_roles.user_id = $1
+ORDER BY roles.name
+`
+
+func (q *Queries) ListRolesForUser(ctx context.Context, userID pgtype.UUID) ([]Role, error) {
+	rows, err := q.db.Query(ctx, listRolesForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Role{}
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.IsSystem,
 		); err != nil {
 			return nil, err
 		}
@@ -163,4 +340,80 @@ func (q *Queries) ListUserPermissions(ctx context.Context, userID pgtype.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockActiveSystemAdministratorIDs = `-- name: LockActiveSystemAdministratorIDs :many
+SELECT users.id
+FROM users
+JOIN user_roles ON user_roles.user_id = users.id
+JOIN roles ON roles.id = user_roles.role_id
+WHERE users.is_active = TRUE
+  AND roles.name = 'admin'
+  AND roles.is_system = TRUE
+FOR UPDATE OF users
+`
+
+func (q *Queries) LockActiveSystemAdministratorIDs(ctx context.Context) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveSystemAdministratorIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockSystemAdminRole = `-- name: LockSystemAdminRole :one
+SELECT id, name, description, created_at, updated_at, is_system FROM roles WHERE name = 'admin' AND is_system = TRUE FOR UPDATE
+`
+
+func (q *Queries) LockSystemAdminRole(ctx context.Context) (Role, error) {
+	row := q.db.QueryRow(ctx, lockSystemAdminRole)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSystem,
+	)
+	return i, err
+}
+
+const updateRole = `-- name: UpdateRole :one
+UPDATE roles
+SET name = $2, description = $3, updated_at = NOW()
+WHERE id = $1
+RETURNING id, name, description, created_at, updated_at, is_system
+`
+
+type UpdateRoleParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+}
+
+func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error) {
+	row := q.db.QueryRow(ctx, updateRole, arg.ID, arg.Name, arg.Description)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsSystem,
+	)
+	return i, err
 }

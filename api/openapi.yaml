@@ -158,6 +158,49 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/users/me/preferences:
+    get:
+      operationId: getCurrentUserPreferences
+      summary: Return the authenticated user's appearance preferences
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        "200":
+          description: Account appearance preferences, or defaults when none have been saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreferencesEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      operationId: putCurrentUserPreferences
+      summary: Replace the authenticated user's appearance preferences
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Preferences"
+      responses:
+        "200":
+          description: Account appearance preferences replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreferencesEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/users:
     get:
       operationId: listUsers
@@ -248,6 +291,68 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/users/{userID}:
+    patch:
+      operationId: updateUser
+      summary: Update a user profile
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/users/{userID}/password/reset:
+    post:
+      operationId: resetUserPassword
+      summary: Reset a user's password and revoke their sessions
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/roles:
     get:
       operationId: listRoles
@@ -266,6 +371,109 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createRole
+      summary: Create a custom role
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleRequest"
+      responses:
+        "201":
+          description: Custom role created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/roles/{roleID}:
+    get:
+      operationId: getRole
+      summary: Return a role with its permissions
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoleID"
+      responses:
+        "200":
+          description: Role detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleDetailEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateRole
+      summary: Update a custom role or a system role description
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoleID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleRequest"
+      responses:
+        "200":
+          description: Role updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      operationId: deleteRole
+      summary: Delete a custom role
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoleID"
+      responses:
+        "200":
+          description: Role deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /api/v1/permissions:
     get:
       operationId: listPermissions
@@ -307,6 +515,38 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/users/{userID}/roles:
+    put:
+      operationId: replaceUserRoles
+      summary: Atomically replace all roles assigned to a user
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceUserRolesRequest"
+      responses:
+        "200":
+          description: User role assignments replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/roles/{roleID}/permissions/{permissionID}:
     post:
       operationId: grantRolePermission
@@ -330,6 +570,38 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/roles/{roleID}/permissions:
+    put:
+      operationId: replaceRolePermissions
+      summary: Atomically replace all permissions assigned to a custom role
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoleID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceRolePermissionsRequest"
+      responses:
+        "200":
+          description: Role permission assignments replaced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BooleanEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /api/v1/audit-logs:
     get:
       operationId: listAuditLogs
@@ -366,6 +638,18 @@ paths:
           in: query
           schema:
             type: string
+        - name: from
+          in: query
+          description: Include events created at or after this RFC 3339 timestamp.
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Include events created at or before this RFC 3339 timestamp.
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Paginated audit event collection.
@@ -734,6 +1018,10 @@ components:
         updated_at:
           type: string
           format: date-time
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
     UserEnvelope:
       allOf:
         - $ref: "#/components/schemas/SuccessEnvelope"
@@ -741,6 +1029,34 @@ components:
           properties:
             data:
               $ref: "#/components/schemas/User"
+    Preferences:
+      type: object
+      additionalProperties: false
+      required: [theme, color_mode, accent_color, font_scale, radius_scale]
+      properties:
+        theme:
+          type: string
+          enum: [enterprise, cyberpunk]
+        color_mode:
+          type: string
+          enum: [light, dark, system]
+        accent_color:
+          type: string
+          nullable: true
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        font_scale:
+          type: string
+          enum: [small, standard, large]
+        radius_scale:
+          type: string
+          enum: [square, compact, rounded]
+    PreferencesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Preferences"
     AuthenticatedUser:
       allOf:
         - $ref: "#/components/schemas/User"
@@ -793,6 +1109,27 @@ components:
           minLength: 12
         display_name:
           type: string
+    UpdateUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, username, display_name]
+      properties:
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          minLength: 1
+        display_name:
+          type: string
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [new_password]
+      properties:
+        new_password:
+          type: string
+          minLength: 12
     SetActiveRequest:
       type: object
       additionalProperties: false
@@ -802,7 +1139,7 @@ components:
           type: boolean
     Role:
       type: object
-      required: [id, name, description]
+      required: [id, name, description, is_system]
       properties:
         id:
           type: string
@@ -811,6 +1148,50 @@ components:
           type: string
         description:
           type: string
+        is_system:
+          type: boolean
+    RoleDetail:
+      allOf:
+        - $ref: "#/components/schemas/Role"
+        - type: object
+          required: [permissions]
+          properties:
+            permissions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Permission"
+    RoleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, description]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+    ReplaceUserRolesRequest:
+      type: object
+      additionalProperties: false
+      required: [role_ids]
+      properties:
+        role_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    ReplaceRolePermissionsRequest:
+      type: object
+      additionalProperties: false
+      required: [permission_ids]
+      properties:
+        permission_ids:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
     Permission:
       type: object
       required: [id, name, description]
@@ -831,6 +1212,20 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/Role"
+    RoleEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Role"
+    RoleDetailEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/RoleDetail"
     PermissionsEnvelope:
       allOf:
         - $ref: "#/components/schemas/SuccessEnvelope"

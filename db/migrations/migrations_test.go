@@ -9,16 +9,20 @@ import (
 
 func TestMigrationSetIsCompleteAndReversible(t *testing.T) {
 	wants := map[string][]string{
-		"000001_identity.up.sql":      {"CREATE TABLE users", "CREATE TABLE roles", "CREATE TABLE permissions", "CREATE TABLE user_roles", "CREATE TABLE role_permissions"},
-		"000001_identity.down.sql":    {"DROP TABLE IF EXISTS role_permissions", "DROP TABLE IF EXISTS users"},
-		"000002_audit.up.sql":         {"CREATE TABLE audit_logs"},
-		"000002_audit.down.sql":       {"DROP TABLE IF EXISTS audit_logs"},
-		"000003_tasks.up.sql":         {"CREATE TABLE task_definitions", "CREATE TABLE task_executions", "CREATE TABLE task_schedules"},
-		"000003_tasks.down.sql":       {"DROP TABLE IF EXISTS task_schedules", "DROP TABLE IF EXISTS task_definitions"},
-		"000004_seed_rbac.up.sql":     {"ON CONFLICT", "admin", "user"},
-		"000004_seed_rbac.down.sql":   {"DELETE FROM permissions", "DELETE FROM roles"},
-		"000005_task_outbox.up.sql":   {"CREATE TABLE task_outbox_messages", "published_at", "task_outbox_pending_idx"},
-		"000005_task_outbox.down.sql": {"DROP TABLE IF EXISTS task_outbox_messages"},
+		"000001_identity.up.sql":                 {"CREATE TABLE users", "CREATE TABLE roles", "CREATE TABLE permissions", "CREATE TABLE user_roles", "CREATE TABLE role_permissions"},
+		"000001_identity.down.sql":               {"DROP TABLE IF EXISTS role_permissions", "DROP TABLE IF EXISTS users"},
+		"000002_audit.up.sql":                    {"CREATE TABLE audit_logs"},
+		"000002_audit.down.sql":                  {"DROP TABLE IF EXISTS audit_logs"},
+		"000003_tasks.up.sql":                    {"CREATE TABLE task_definitions", "CREATE TABLE task_executions", "CREATE TABLE task_schedules"},
+		"000003_tasks.down.sql":                  {"DROP TABLE IF EXISTS task_schedules", "DROP TABLE IF EXISTS task_definitions"},
+		"000004_seed_rbac.up.sql":                {"ON CONFLICT", "admin", "user"},
+		"000004_seed_rbac.down.sql":              {"DELETE FROM permissions", "DELETE FROM roles"},
+		"000005_task_outbox.up.sql":              {"CREATE TABLE task_outbox_messages", "published_at", "task_outbox_pending_idx"},
+		"000005_task_outbox.down.sql":            {"DROP TABLE IF EXISTS task_outbox_messages"},
+		"000007_user_preferences.up.sql":         {"CREATE TABLE user_preferences", "accent_color", "user_preferences_theme_check"},
+		"000007_user_preferences.down.sql":       {"DROP TABLE IF EXISTS user_preferences"},
+		"000008_role_system_protection.up.sql":   {"ADD COLUMN is_system", "admin", "user"},
+		"000008_role_system_protection.down.sql": {"DROP COLUMN IF EXISTS is_system"},
 	}
 
 	for name, fragments := range wants {

@@ -61,13 +61,23 @@ func TestOpenAPIContainsImplementedCoreOperations(t *testing.T) {
 		{http.MethodPost, "/api/v1/auth/refresh", true},
 		{http.MethodPost, "/api/v1/auth/logout", true},
 		{http.MethodGet, "/api/v1/users/me", false},
+		{http.MethodGet, "/api/v1/users/me/preferences", false},
+		{http.MethodPut, "/api/v1/users/me/preferences", false},
 		{http.MethodGet, "/api/v1/users", false},
 		{http.MethodPost, "/api/v1/users", false},
+		{http.MethodPatch, "/api/v1/users/{userID}", false},
+		{http.MethodPost, "/api/v1/users/{userID}/password/reset", false},
 		{http.MethodPatch, "/api/v1/users/{userID}/active", false},
 		{http.MethodGet, "/api/v1/roles", false},
+		{http.MethodPost, "/api/v1/roles", false},
+		{http.MethodGet, "/api/v1/roles/{roleID}", false},
+		{http.MethodPatch, "/api/v1/roles/{roleID}", false},
+		{http.MethodDelete, "/api/v1/roles/{roleID}", false},
 		{http.MethodGet, "/api/v1/permissions", false},
 		{http.MethodPost, "/api/v1/users/{userID}/roles/{roleID}", false},
+		{http.MethodPut, "/api/v1/users/{userID}/roles", false},
 		{http.MethodPost, "/api/v1/roles/{roleID}/permissions/{permissionID}", false},
+		{http.MethodPut, "/api/v1/roles/{roleID}/permissions", false},
 		{http.MethodGet, "/api/v1/audit-logs", false},
 		{http.MethodGet, "/api/v1/task-executions", false},
 		{http.MethodPost, "/api/v1/task-executions", false},
@@ -104,6 +114,32 @@ func TestOpenAPIContainsImplementedCoreOperations(t *testing.T) {
 	}
 }
 
+func TestPreferencesContractUsesFixedValidatedAccountFields(t *testing.T) {
+	document := loadOpenAPI(t)
+	for _, schemaName := range []string{"Preferences", "PreferencesEnvelope"} {
+		if document.Components.Schemas[schemaName] == nil {
+			t.Errorf("schema %s is missing", schemaName)
+		}
+	}
+	schemaRef := document.Components.Schemas["Preferences"]
+	if schemaRef == nil || schemaRef.Value == nil {
+		t.Fatal("Preferences schema is missing")
+	}
+	schema := schemaRef.Value
+	for _, field := range []string{"theme", "color_mode", "accent_color", "font_scale", "radius_scale"} {
+		if schema.Properties[field] == nil || !slices.Contains(schema.Required, field) {
+			t.Errorf("Preferences.%s must be present and required", field)
+		}
+	}
+	if schema.Properties["accent_color"].Value.Nullable != true {
+		t.Error("Preferences.accent_color must be nullable")
+	}
+	put := operationAt(t, document, http.MethodPut, "/api/v1/users/me/preferences")
+	if put.Responses.Value("422") == nil {
+		t.Error("PUT /api/v1/users/me/preferences must document validation failures")
+	}
+}
+
 func TestEveryOpenAPIOperationExplicitlyDeclaresSecurity(t *testing.T) {
 	document := loadOpenAPI(t)
 	for path, item := range document.Paths.Map() {
@@ -123,11 +159,46 @@ func TestOpenAPIProvidesSecuritySchemesAndCoreSchemas(t *testing.T) {
 		}
 	}
 	for _, schema := range []string{
-		"LoginRequest", "RefreshRequest", "TokenPair", "User", "AuthenticatedUser", "AuthenticatedUserEnvelope", "Role", "Permission",
+		"LoginRequest", "RefreshRequest", "TokenPair", "User", "AuthenticatedUser", "AuthenticatedUserEnvelope", "Role", "RoleDetail", "Permission",
+		"UpdateUserRequest", "ResetPasswordRequest", "ReplaceUserRolesRequest", "RoleRequest", "ReplaceRolePermissionsRequest",
 		"AuditEvent", "TaskSubmissionRequest", "TaskExecution", "TaskTypeRef",
 	} {
 		if document.Components.Schemas[schema] == nil {
 			t.Errorf("schema %s is missing", schema)
+		}
+	}
+}
+
+func TestIAMManagementSchemasExposeAtomicAndProtectedRoleContracts(t *testing.T) {
+	document := loadOpenAPI(t)
+	role := document.Components.Schemas["Role"].Value
+	if role == nil || role.Properties["is_system"] == nil || !slices.Contains(role.Required, "is_system") {
+		t.Fatal("Role.is_system must be a required response field")
+	}
+	for _, test := range []struct {
+		schema string
+		field  string
+	}{
+		{schema: "ReplaceUserRolesRequest", field: "role_ids"},
+		{schema: "ReplaceRolePermissionsRequest", field: "permission_ids"},
+		{schema: "ResetPasswordRequest", field: "new_password"},
+	} {
+		schema := document.Components.Schemas[test.schema].Value
+		if schema == nil || schema.Properties[test.field] == nil || !slices.Contains(schema.Required, test.field) {
+			t.Errorf("%s.%s must be required", test.schema, test.field)
+		}
+	}
+	for _, endpoint := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPatch, "/api/v1/users/{userID}"},
+		{http.MethodPost, "/api/v1/users/{userID}/password/reset"},
+		{http.MethodPut, "/api/v1/users/{userID}/roles"},
+		{http.MethodPut, "/api/v1/roles/{roleID}/permissions"},
+	} {
+		if operationAt(t, document, endpoint.method, endpoint.path).Responses.Value("422") == nil {
+			t.Errorf("%s %s must document validation errors", endpoint.method, endpoint.path)
 		}
 	}
 }
@@ -222,6 +293,21 @@ func TestReadCollectionEndpointsDocumentFilterParameters(t *testing.T) {
 	status := executions.Parameters[3].Value.Schema.Value
 	if status == nil || len(status.Enum) != 5 {
 		t.Fatalf("GET /api/v1/task-executions status schema = %+v", status)
+	}
+
+	auditLogs := operationAt(t, document, http.MethodGet, "/api/v1/audit-logs")
+	parameters := make(map[string]*openapi3.Schema)
+	for _, parameter := range auditLogs.Parameters {
+		if parameter.Value == nil || parameter.Value.Schema == nil {
+			continue
+		}
+		parameters[parameter.Value.Name] = parameter.Value.Schema.Value
+	}
+	for _, name := range []string{"from", "to"} {
+		schema := parameters[name]
+		if schema == nil || schema.Type == nil || !schema.Type.Is("string") || schema.Format != "date-time" {
+			t.Errorf("GET /api/v1/audit-logs %s schema = %+v, want RFC 3339 date-time string", name, schema)
+		}
 	}
 }
 

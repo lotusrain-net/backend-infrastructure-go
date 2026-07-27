@@ -2,7 +2,7 @@ import type { TableQueryState } from "@/components/patterns/use-table-query-stat
 
 export function QueryState({ state, total }: { state: TableQueryState; total: number }) {
   return (
-    <div className="flex items-center justify-between border border-[color:var(--border-subtle)] bg-[color:var(--surface)] px-4 py-3 text-sm text-[color:var(--fg-muted)]">
+    <div className="flex items-center justify-between border border-[color:var(--border-subtle)] bg-[color:var(--surface)] px-4 py-3 text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)] [border-radius:var(--radius-md)]">
       <span>
         第 {state.page} 页 · 每页 {state.size} 条
       </span>

@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCurrentUserQuery } from "@/features/auth/api";
+import { AppearancePreferencesProvider } from "@/features/preferences/provider";
 import { ApiError } from "@/lib/api/client";
 
 export function AuthGate({ children }: { children: ReactNode }) {
@@ -43,5 +44,5 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return null;
   }
 
-  return <>{children}</>;
+  return <AppearancePreferencesProvider userID={user.id}>{children}</AppearancePreferencesProvider>;
 }

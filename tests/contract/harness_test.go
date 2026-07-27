@@ -44,6 +44,14 @@ func (application *contractApplication) CurrentUser(context.Context, string) (ia
 	return application.user, nil
 }
 
+func (application *contractApplication) Preferences(context.Context, string) (iam.Preferences, error) {
+	return iam.DefaultPreferences(), nil
+}
+
+func (application *contractApplication) PutPreferences(context.Context, string, iam.Preferences) error {
+	return nil
+}
+
 func (application *contractApplication) Users(context.Context, iam.UserQuery) (pagination.Page[iam.User], error) {
 	user := application.user.User
 	return pagination.New([]iam.User{user}, 1, 20, 1), nil
@@ -53,12 +61,42 @@ func (application *contractApplication) CreateUser(context.Context, iam.CreateUs
 	return application.user.User, nil
 }
 
+func (application *contractApplication) UpdateUser(context.Context, string, iam.UpdateUserInput) (iam.User, error) {
+	return application.user.User, nil
+}
+
+func (application *contractApplication) ResetUserPassword(context.Context, string, string) error {
+	return nil
+}
+
 func (application *contractApplication) SetUserActive(context.Context, string, bool) error {
+	return nil
+}
+
+func (application *contractApplication) ReplaceUserRoles(context.Context, string, []string) error {
 	return nil
 }
 
 func (application *contractApplication) Roles(context.Context) ([]iam.Role, error) {
 	return []iam.Role{}, nil
+}
+
+func (application *contractApplication) Role(context.Context, string) (iam.RoleDetail, error) {
+	return iam.RoleDetail{}, nil
+}
+
+func (application *contractApplication) CreateRole(_ context.Context, input iam.RoleInput) (iam.Role, error) {
+	return iam.Role{ID: "role-1", Name: input.Name, Description: input.Description}, nil
+}
+
+func (application *contractApplication) UpdateRole(_ context.Context, id string, input iam.RoleInput) (iam.Role, error) {
+	return iam.Role{ID: id, Name: input.Name, Description: input.Description}, nil
+}
+
+func (application *contractApplication) DeleteRole(context.Context, string) error { return nil }
+
+func (application *contractApplication) ReplaceRolePermissions(context.Context, string, []string) error {
+	return nil
 }
 
 func (application *contractApplication) Permissions(context.Context) ([]iam.Permission, error) {

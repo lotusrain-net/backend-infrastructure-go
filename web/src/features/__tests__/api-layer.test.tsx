@@ -154,7 +154,7 @@ describe("feature API layer", () => {
   it("loads auxiliary collections and accepts dynamic task submissions", async () => {
     queryClient.clear();
 
-    const roles: Role[] = [{ id: "r1", name: "admin", description: "Administrator" }];
+    const roles: Role[] = [{ id: "r1", name: "admin", description: "Administrator", is_system: true }];
     const permissions: Permission[] = [{ id: "p1", name: "users:read", description: "Read users" }];
     const auditLogs = {
       items: [

@@ -30,6 +30,13 @@ x-admin-seed-environment: &admin-seed-environment
 
 x-app: &app
   image: backend-infrastructure-go:${IMAGE_TAG:-local}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+    args:
+      IMAGE_REGISTRY: ${IMAGE_REGISTRY:-public.ecr.aws/docker}
+      GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+      GOSUMDB: ${GOSUMDB:-sum.golang.google.cn}
   user: "10001:10001"
   environment: *app-environment
   networks:
@@ -44,7 +51,7 @@ x-app: &app
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: ${IMAGE_REGISTRY:-public.ecr.aws/docker}/library/postgres:15-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
@@ -64,7 +71,7 @@ services:
       start_period: 5s
 
   redis:
-    image: redis:7-alpine
+    image: ${IMAGE_REGISTRY:-public.ecr.aws/docker}/library/redis:7-alpine
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - redis-data:/data
@@ -106,9 +113,6 @@ services:
 
   api:
     <<: *app
-    build:
-      context: ..
-      dockerfile: Dockerfile
     entrypoint: ["/app/api"]
     environment: *api-environment
     ports:
@@ -131,6 +135,7 @@ services:
     build:
       context: ../web
       args:
+        IMAGE_REGISTRY: ${IMAGE_REGISTRY:-public.ecr.aws/docker}
         API_PROXY_TARGET: ${API_PROXY_TARGET:-http://api:8080}
     user: "10001:10001"
     environment:

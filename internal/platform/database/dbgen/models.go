@@ -37,6 +37,7 @@ type Role struct {
 	Description string             `json:"description"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	IsSystem    bool               `json:"is_system"`
 }
 
 type RolePermission struct {
@@ -111,6 +112,17 @@ type User struct {
 	IsActive     bool               `json:"is_active"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UserPreference struct {
+	UserID      pgtype.UUID        `json:"user_id"`
+	Theme       string             `json:"theme"`
+	ColorMode   string             `json:"color_mode"`
+	AccentColor pgtype.Text        `json:"accent_color"`
+	FontScale   string             `json:"font_scale"`
+	RadiusScale string             `json:"radius_scale"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type UserRole struct {

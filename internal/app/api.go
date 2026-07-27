@@ -57,9 +57,11 @@ func NewAPIRouter(options APIRouterOptions) (http.Handler, error) {
 var knownAPIRoutes = []string{
 	"/health/live", "/health/ready", "/metrics",
 	"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
-	"/api/v1/users/me", "/api/v1/users", "/api/v1/users/{userID}/active",
-	"/api/v1/roles", "/api/v1/permissions", "/api/v1/users/{userID}/roles/{roleID}",
-	"/api/v1/roles/{roleID}/permissions/{permissionID}", "/api/v1/audit-logs",
+	"/api/v1/users/me", "/api/v1/users/me/preferences", "/api/v1/users", "/api/v1/users/{userID}",
+	"/api/v1/users/{userID}/active", "/api/v1/users/{userID}/password/reset", "/api/v1/users/{userID}/roles",
+	"/api/v1/users/{userID}/roles/{roleID}", "/api/v1/roles", "/api/v1/roles/{roleID}",
+	"/api/v1/permissions", "/api/v1/roles/{roleID}/permissions", "/api/v1/roles/{roleID}/permissions/{permissionID}",
+	"/api/v1/audit-logs",
 	"/api/v1/task-executions", "/api/v1/task-executions/{executionID}", "/api/v1/task-types",
 }
 
@@ -117,13 +119,13 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 		return nil, closeBuildResources(ctx, resources, err)
 	}
 	queries := dbgen.New(pool)
-	iamRepo := iamstore.New(queries)
+	iamRepo := iamstore.New(queries, pool)
 	jwt, err := iam.NewJWTManager([]byte(cfg.JWTSecret), cfg.JWTIssuer, cfg.AccessTokenTTL)
 	if err != nil {
 		return nil, closeBuildResources(ctx, resources, err)
 	}
 	refresh := iam.NewRefreshStore(redisCacheAdapter{client: redisClient}, "iam:"+cfg.Environment, cfg.RefreshTokenTTL)
-	iamService := iam.NewService(iamRepo, iamRepo, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, refresh)
+	iamService := iam.NewServiceWithManagement(iamRepo, iamRepo, iamRepo, iamRepo, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, refresh)
 	auditService := audit.NewService(auditstore.New(queries))
 	metrics := observability.New(observability.Config{Namespace: "backend", KnownRoutes: knownAPIRoutes, KnownDependencies: []string{"postgres", "redis"}, KnownTaskTypes: RuntimeTaskTypes()})
 	auditRecorder := audit.NewBestEffortRecorder(auditService, logger, metrics)

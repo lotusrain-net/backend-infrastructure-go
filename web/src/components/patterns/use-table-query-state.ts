@@ -1,58 +1,66 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export interface TableQueryState {
   page: number;
   size: number;
-  search: string;
+  search?: string;
 }
 
-const defaultState: TableQueryState = {
-  page: 1,
-  size: 10,
-  search: "",
-};
-
-function parsePositiveInteger(value: string | null, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+export interface TableQueryCodec<T extends TableQueryState> {
+  defaultState: T;
+  keys: readonly string[];
+  parse: (searchParams: URLSearchParams) => T;
+  serialize: (state: T) => Record<string, string | undefined>;
+  resetPageOnChangeKeys?: ReadonlyArray<keyof T>;
 }
 
-export function createTableQueryState(searchParams: URLSearchParams): TableQueryState {
-  return {
-    page: parsePositiveInteger(searchParams.get("page"), defaultState.page),
-    size: parsePositiveInteger(searchParams.get("size"), defaultState.size),
-    search: searchParams.get("search") ?? defaultState.search,
-  };
+export type TableQueryUpdate<T> = Partial<T> | ((current: T) => Partial<T>);
+
+function asSearchParams(searchParams: { toString(): string }) {
+  return new URLSearchParams(searchParams.toString());
 }
 
-export function useTableQueryState(initialSearchParams = new URLSearchParams()) {
-  const [state, setState] = React.useState<TableQueryState>(() =>
-    createTableQueryState(initialSearchParams),
-  );
+function hasChanged<T extends TableQueryState>(current: T, next: T, keys: ReadonlyArray<keyof T>) {
+  return keys.some((key) => current[key] !== next[key]);
+}
 
-  const setPage = React.useCallback((page: number) => {
-    setState((current) => ({ ...current, page }));
-  }, []);
+export function useTableQueryState<T extends TableQueryState>(codec: TableQueryCodec<T>) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
+  const state = React.useMemo(() => codec.parse(new URLSearchParams(search)), [codec, search]);
 
-  const setSize = React.useCallback((size: number) => {
-    setState((current) => ({ ...current, size, page: 1 }));
-  }, []);
+  const replaceState = React.useCallback((next: T) => {
+    const nextParams = asSearchParams(searchParams);
+    for (const key of codec.keys) {
+      nextParams.delete(key);
+    }
+    for (const [key, value] of Object.entries(codec.serialize(next))) {
+      if (value !== undefined && value !== "") {
+        nextParams.set(key, value);
+      }
+    }
+    const query = nextParams.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [codec, pathname, router, searchParams]);
 
-  const setSearch = React.useCallback((search: string) => {
-    setState((current) => ({ ...current, search, page: 1 }));
-  }, []);
+  const setState = React.useCallback((update: TableQueryUpdate<T>) => {
+    const current = codec.parse(asSearchParams(searchParams));
+    const patch = typeof update === "function" ? update(current) : update;
+    const next = { ...current, ...patch } as T;
+    if (codec.resetPageOnChangeKeys && hasChanged(current, next, codec.resetPageOnChangeKeys)) {
+      next.page = codec.defaultState.page;
+    }
+    replaceState(next);
+  }, [codec, replaceState, searchParams]);
 
   const reset = React.useCallback(() => {
-    setState(defaultState);
-  }, []);
+    replaceState(codec.defaultState);
+  }, [codec.defaultState, replaceState]);
 
-  return {
-    state,
-    setPage,
-    setSize,
-    setSearch,
-    reset,
-  };
+  return { state, setState, reset };
 }

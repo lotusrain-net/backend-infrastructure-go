@@ -45,19 +45,19 @@ export function DataTable<T>({
   const columnCount = Math.max(columns.length, 1);
 
   return (
-    <section className="overflow-hidden border border-[color:var(--border-subtle)] bg-[color:var(--surface)]">
+    <section className="overflow-hidden border border-[color:var(--border-subtle)] bg-[color:var(--surface)] [border-radius:var(--radius-lg)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] px-4 py-3">
-        <p aria-live="polite" className="text-sm text-[color:var(--fg-muted)]">
+        <p aria-live="polite" className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
           共 {page.total} 条记录
         </p>
-        <p className="text-sm text-[color:var(--fg-muted)]">
+        <p className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
           第 {page.page} / {Math.max(page.pages, 1)} 页
         </p>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
-          <thead className="bg-[color:var(--surface-subtle)] text-xs text-[color:var(--fg-muted)]">
+        <table className="min-w-full text-left text-[length:var(--text-body-sm)]">
+          <thead className="bg-[color:var(--surface-subtle)] text-[length:var(--text-caption)] text-[color:var(--fg-muted)]">
             <tr>
               {columns.map((column) => (
                 <th key={column.key} scope="col" className="whitespace-nowrap px-4 py-3 font-semibold">
@@ -82,7 +82,7 @@ export function DataTable<T>({
                 <td colSpan={columnCount} className="px-4 py-12 text-center">
                   <div role="status" className="mx-auto max-w-md space-y-1">
                     <p className="font-medium text-[color:var(--fg-default)]">{emptyTitle}</p>
-                    <p className="text-sm text-[color:var(--fg-muted)]">{emptyDescription}</p>
+                    <p className="text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">{emptyDescription}</p>
                   </div>
                 </td>
               </tr>
@@ -157,7 +157,7 @@ function PaginationButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-9 w-9 items-center justify-center border border-[color:var(--border-strong)] text-[color:var(--fg-default)] transition-colors hover:bg-[color:var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-45"
+      className="inline-flex h-9 w-9 items-center justify-center border border-[color:var(--border-strong)] text-[color:var(--fg-default)] transition-colors [border-radius:var(--radius-md)] hover:bg-[color:var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-45"
     >
       {children}
     </button>

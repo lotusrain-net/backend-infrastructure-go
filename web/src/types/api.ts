@@ -1,5 +1,15 @@
 export type ThemeName = "enterprise" | "cyberpunk";
 export type ColorMode = "light" | "dark" | "system";
+export type FontScale = "small" | "standard" | "large";
+export type RadiusScale = "square" | "compact" | "rounded";
+
+export interface AccountPreferences {
+  theme: ThemeName;
+  color_mode: ColorMode;
+  accent_color: string | null;
+  font_scale: FontScale;
+  radius_scale: RadiusScale;
+}
 
 export interface ApiEnvelope<T> {
   code: number;
@@ -42,6 +52,7 @@ export interface User {
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+  roles?: Role[];
 }
 
 export interface AuthenticatedUser extends User {
@@ -52,6 +63,29 @@ export type UserProfile = AuthenticatedUser;
 
 export interface Role {
   id: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+}
+
+export interface RoleDetail extends Role {
+  permissions: Permission[];
+}
+
+export interface CreateUserRequest {
+  email: string;
+  username: string;
+  password: string;
+  display_name?: string;
+}
+
+export interface UpdateUserRequest {
+  email: string;
+  username: string;
+  display_name: string;
+}
+
+export interface RoleRequest {
   name: string;
   description: string;
 }

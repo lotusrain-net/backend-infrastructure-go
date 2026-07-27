@@ -87,6 +87,7 @@ func TestMigrationsUpDownUpAndSeedIdempotency(t *testing.T) {
 		t.Fatalf("seed counts roles=%d permissions=%d", roles, permissions)
 	}
 	exerciseGeneratedQueries(t, ctx, conn)
+	exerciseIAMManagement(t, ctx, conn)
 	exerciseConstraints(t, ctx, conn)
 
 	_, err = conn.Exec(ctx, "INSERT INTO users (email, username, password_hash) VALUES ('invalid@example.com', '', 'hash')")
@@ -284,7 +285,7 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	if err != nil || byEmail.ID != created.ID {
 		t.Fatalf("GetUserByEmail() = %#v, %v", byEmail, err)
 	}
-	if err := queries.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{
+	if _, err := queries.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{
 		ID:          created.ID,
 		Email:       "dbgen-updated@example.com",
 		Username:    "dbgen-updated",
@@ -292,7 +293,7 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := queries.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: created.ID, PasswordHash: "hash-2"}); err != nil {
+	if _, err := queries.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: created.ID, PasswordHash: "hash-2"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := queries.SetUserActive(ctx, dbgen.SetUserActiveParams{ID: created.ID, IsActive: false}); err != nil {
@@ -380,5 +381,68 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	}
 	if err := authorization.Authorize(ctx, created.ID.String(), "tasks:write"); !errors.Is(err, iam.ErrPermissionDenied) {
 		t.Fatalf("Authorize() missing user error = %v, want permission denied", err)
+	}
+}
+
+func exerciseIAMManagement(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	queries := dbgen.New(conn)
+	store := iamstore.New(queries, conn)
+	adminRole, err := queries.GetRoleByName(ctx, "admin")
+	if err != nil || !adminRole.IsSystem {
+		t.Fatalf("admin system role = %#v, %v", adminRole, err)
+	}
+	adminUser, err := queries.CreateUser(ctx, dbgen.CreateUserParams{
+		Email: "management-admin@example.com", Username: "management-admin", PasswordHash: "hash", DisplayName: "Management Admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queries.AssignUserRole(ctx, dbgen.AssignUserRoleParams{UserID: adminUser.ID, RoleID: adminRole.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUserActive(ctx, adminUser.ID.String(), false); !errors.Is(err, iam.ErrLastActiveAdministrator) {
+		t.Fatalf("SetUserActive(last admin) error = %v", err)
+	}
+	if err := store.ReplaceUserRoles(ctx, adminUser.ID.String(), []string{}); !errors.Is(err, iam.ErrLastActiveAdministrator) {
+		t.Fatalf("ReplaceUserRoles(last admin) error = %v", err)
+	}
+	if _, err := store.UpdateRole(ctx, adminRole.ID.String(), iam.RoleInput{Name: "renamed-admin", Description: "no"}); !errors.Is(err, iam.ErrSystemRoleProtected) {
+		t.Fatalf("UpdateRole(system rename) error = %v", err)
+	}
+	if err := store.DeleteRole(ctx, adminRole.ID.String()); !errors.Is(err, iam.ErrSystemRoleProtected) {
+		t.Fatalf("DeleteRole(system) error = %v", err)
+	}
+	if err := store.ReplaceRolePermissions(ctx, adminRole.ID.String(), []string{}); !errors.Is(err, iam.ErrSystemRoleProtected) {
+		t.Fatalf("ReplaceRolePermissions(system) error = %v", err)
+	}
+
+	customRole, err := store.CreateRole(ctx, iam.RoleInput{Name: "management-operators", Description: "Management operators"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	permission, err := queries.GetPermissionByName(ctx, "tasks:read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceRolePermissions(ctx, customRole.ID, []string{permission.ID.String()}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := store.Role(ctx, customRole.ID)
+	if err != nil || detail.IsSystem || len(detail.Permissions) != 1 || detail.Permissions[0].Name != "tasks:read" {
+		t.Fatalf("custom role detail = %+v, %v", detail, err)
+	}
+	member, err := queries.CreateUser(ctx, dbgen.CreateUserParams{
+		Email: "management-member@example.com", Username: "management-member", PasswordHash: "hash", DisplayName: "Management Member",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceUserRoles(ctx, member.ID.String(), []string{customRole.ID}); err != nil {
+		t.Fatal(err)
+	}
+	roles, err := queries.ListRolesForUser(ctx, member.ID)
+	if err != nil || len(roles) != 1 || roles[0].ID.String() != customRole.ID {
+		t.Fatalf("replacement roles = %+v, %v", roles, err)
 	}
 }

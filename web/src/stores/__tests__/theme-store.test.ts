@@ -1,51 +1,56 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
+  applyRemotePreferences,
+  cacheKeyForUser,
+  createAppearancePreferences,
   getThemeState,
-  hydrateThemeStore,
   initializeThemeStore,
-  setColorMode,
-  setTheme,
+  markPreferencesSyncFailed,
+  previewPreferences,
+  switchThemeUser,
 } from "@/stores/theme-store";
 
-describe("theme persistence", () => {
-  it("persists theme selection and applies DOM attributes", () => {
-    setTheme("cyberpunk");
-    setColorMode("dark");
+describe("account appearance preferences", () => {
+  it("keeps local preview caches isolated by user ID", () => {
+    const first = createAppearancePreferences({ theme: "cyberpunk", color_mode: "dark", font_scale: "large" });
+    const second = createAppearancePreferences({ theme: "enterprise", color_mode: "light", radius_scale: "square" });
 
-    const saved = JSON.parse(window.localStorage.getItem("backend-infra-theme") ?? "{}");
-    expect(saved).toEqual({
-      state: { theme: "cyberpunk", colorMode: "dark" },
-      version: 0,
-    });
+    switchThemeUser("user-1");
+    previewPreferences("user-1", first);
+    switchThemeUser("user-2");
+    previewPreferences("user-2", second);
+    switchThemeUser("user-1");
+
+    expect(JSON.parse(window.localStorage.getItem(cacheKeyForUser("user-1")) ?? "{}")).toEqual(first);
+    expect(getThemeState().preferences).toEqual(first);
     expect(document.documentElement.dataset.theme).toBe("cyberpunk");
-    expect(document.documentElement.dataset.colorMode).toBe("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.dataset.fontScale).toBe("large");
   });
 
-  it("hydrates from storage and honors system mode", () => {
-    window.localStorage.setItem(
-      "backend-infra-theme",
-      JSON.stringify({ state: { theme: "enterprise", colorMode: "system" }, version: 0 }),
-    );
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockImplementation(() => ({
-        matches: true,
-        media: "(prefers-color-scheme: dark)",
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })),
-    );
+  it("applies a successful server response over a local cached preview", () => {
+    const cached = createAppearancePreferences({ theme: "cyberpunk", color_mode: "dark" });
+    const server = createAppearancePreferences({ theme: "enterprise", color_mode: "light", accent_color: "#1A2B3C" });
 
-    hydrateThemeStore();
+    switchThemeUser("user-1");
+    previewPreferences("user-1", cached);
+    applyRemotePreferences("user-1", server);
+
+    expect(getThemeState().preferences).toEqual(server);
+    expect(getThemeState().syncStatus).toBe("synced");
+    expect(document.documentElement.dataset.colorMode).toBe("light");
+    expect(document.documentElement.style.getPropertyValue("--accent-primary")).toBe("#1A2B3C");
+  });
+
+  it("retains the local preview and records a retryable failure", () => {
+    const preview = createAppearancePreferences({ accent_color: "#1A2B3C" });
+
+    switchThemeUser("user-1");
+    previewPreferences("user-1", preview);
+    markPreferencesSyncFailed("user-1", new Error("network unavailable"));
     initializeThemeStore();
 
-    expect(getThemeState().hydrated).toBe(true);
-    expect(document.documentElement.dataset.theme).toBe("enterprise");
-    expect(document.documentElement.dataset.colorMode).toBe("dark");
+    expect(getThemeState().preferences).toEqual(preview);
+    expect(getThemeState().syncStatus).toBe("error");
+    expect(getThemeState().syncError).toBe("network unavailable");
   });
 });

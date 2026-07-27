@@ -12,7 +12,7 @@ Implementation follows the approved plans in `docs/plans/` and `.omx/plans/`.
 
 ## Deployment
 
-The root `Dockerfile` builds one non-root image containing the API, worker, scheduler, and migration executables. `.env.example` is a local HTTP Compose development profile. Copy it to `.env`, replace every `replace-` placeholder with development-only values, and do not reuse it for deployment.
+The root `Dockerfile` builds one non-root image containing the API, worker, scheduler, and migration executables. `.env.example` is a local HTTP Compose development profile. `./scripts/compose-up.sh` creates `.env` with generated development-only values on its first run. The profile uses ECR Public for Docker images and `goproxy.cn` for Go modules; both can be overridden in `.env`. For manual configuration, copy it to `.env`, replace every `replace-` placeholder with development-only values, and do not reuse it for deployment.
 
 ## Local Development
 
@@ -35,7 +35,15 @@ npm run dev
 
 For direct local frontend development, point `API_PROXY_TARGET` at `http://localhost:8080`. The Compose stack sets `API_PROXY_TARGET=http://api:8080` automatically. `WEB_PORT` controls the published host port for the containerized frontend and defaults to `3000`.
 
-Validate and start the local HTTP development stack with:
+Start the local HTTP development stack with one command:
+
+```sh
+./scripts/compose-up.sh
+```
+
+The first run creates a gitignored `.env` from `.env.example`, generates development-only database, JWT, and administrator secrets, then waits for all Compose health checks. The frontend is available at `http://127.0.0.1:3000`; use `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env` to sign in. Public images default to `public.ecr.aws/docker`; set `IMAGE_REGISTRY` in `.env` to use another Docker-compatible mirror or an internal registry. Stop the stack with `docker compose --env-file .env -f deployments/compose.yml down`. When Make is installed, `make compose-up` and `make compose-down` provide the same commands.
+
+To validate and start the local HTTP development stack manually:
 
 ```sh
 docker compose --env-file .env -f deployments/compose.yml config

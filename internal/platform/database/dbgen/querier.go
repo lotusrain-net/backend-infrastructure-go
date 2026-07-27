@@ -17,30 +17,44 @@ type Querier interface {
 	CountTaskExecutions(ctx context.Context, arg CountTaskExecutionsParams) (int64, error)
 	CountUsers(ctx context.Context, arg CountUsersParams) (int64, error)
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
+	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
 	CreateTaskDefinition(ctx context.Context, arg CreateTaskDefinitionParams) (TaskDefinition, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
 	CreateTaskExecutionWithPendingPublish(ctx context.Context, arg CreateTaskExecutionWithPendingPublishParams) (CreateTaskExecutionWithPendingPublishRow, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	DeleteRole(ctx context.Context, id pgtype.UUID) (int64, error)
+	DeleteRolePermissions(ctx context.Context, roleID pgtype.UUID) error
 	DeleteUser(ctx context.Context, id pgtype.UUID) error
+	DeleteUserRoles(ctx context.Context, userID pgtype.UUID) error
+	GetPermissionByID(ctx context.Context, id pgtype.UUID) (Permission, error)
 	GetPermissionByName(ctx context.Context, name string) (Permission, error)
+	GetRoleByID(ctx context.Context, id pgtype.UUID) (Role, error)
 	GetRoleByName(ctx context.Context, name string) (Role, error)
+	GetSystemAdminRole(ctx context.Context) (Role, error)
 	GetTaskExecution(ctx context.Context, id pgtype.UUID) (TaskExecution, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
+	GetUserPreferences(ctx context.Context, userID pgtype.UUID) (UserPreference, error)
 	GrantRolePermission(ctx context.Context, arg GrantRolePermissionParams) error
 	ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTaskSchedulesRow, error)
 	ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error)
 	ListPendingTaskOutboxMessages(ctx context.Context, limit int32) ([]ListPendingTaskOutboxMessagesRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
+	ListRolePermissions(ctx context.Context, roleID pgtype.UUID) ([]Permission, error)
 	ListRoles(ctx context.Context) ([]Role, error)
+	ListRolesForUser(ctx context.Context, userID pgtype.UUID) ([]Role, error)
 	ListTaskExecutions(ctx context.Context, arg ListTaskExecutionsParams) ([]TaskExecution, error)
 	ListUserPermissions(ctx context.Context, userID pgtype.UUID) ([]string, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	LockActiveSystemAdministratorIDs(ctx context.Context) ([]pgtype.UUID, error)
+	LockSystemAdminRole(ctx context.Context) (Role, error)
 	MarkTaskOutboxMessagePublished(ctx context.Context, queueID string) error
 	SetUserActive(ctx context.Context, arg SetUserActiveParams) (int64, error)
+	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
 	UpdateTaskExecutionStatus(ctx context.Context, arg UpdateTaskExecutionStatusParams) (int64, error)
-	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
-	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error)
+	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error)
+	UpsertUserPreferences(ctx context.Context, arg UpsertUserPreferencesParams) error
 }
 
 var _ Querier = (*Queries)(nil)

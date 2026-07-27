@@ -2,6 +2,7 @@ import { queryOptions, useMutation, useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { queryClient } from "@/lib/query/client";
 import { clearAuthState, setCurrentUser } from "@/stores/auth-store";
+import { clearActiveThemeState } from "@/stores/theme-store";
 import type { AuthenticatedUser, LoginRequest, TokenPair } from "@/types/api";
 
 export const authKeys = {
@@ -40,6 +41,7 @@ export async function logout(): Promise<void> {
     });
   } finally {
     clearAuthState();
+    clearActiveThemeState();
     queryClient.clear();
   }
 }

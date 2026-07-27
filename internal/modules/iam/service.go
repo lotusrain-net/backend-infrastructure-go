@@ -11,15 +11,25 @@ import (
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 type Service struct {
-	users     UserRepository
-	rbac      RBACRepository
-	passwords PasswordService
-	jwt       *JWTManager
-	refresh   *RefreshStore
+	users       UserRepository
+	rbac        RBACRepository
+	preferences PreferencesRepository
+	management  ManagementRepository
+	passwords   PasswordService
+	jwt         *JWTManager
+	refresh     *RefreshStore
 }
 
 func NewService(users UserRepository, rbac RBACRepository, passwords PasswordService, jwt *JWTManager, refresh *RefreshStore) *Service {
-	return &Service{users: users, rbac: rbac, passwords: passwords, jwt: jwt, refresh: refresh}
+	return NewServiceWithPreferences(users, rbac, nil, passwords, jwt, refresh)
+}
+
+func NewServiceWithPreferences(users UserRepository, rbac RBACRepository, preferences PreferencesRepository, passwords PasswordService, jwt *JWTManager, refresh *RefreshStore) *Service {
+	return NewServiceWithManagement(users, rbac, preferences, nil, passwords, jwt, refresh)
+}
+
+func NewServiceWithManagement(users UserRepository, rbac RBACRepository, preferences PreferencesRepository, management ManagementRepository, passwords PasswordService, jwt *JWTManager, refresh *RefreshStore) *Service {
+	return &Service{users: users, rbac: rbac, preferences: preferences, management: management, passwords: passwords, jwt: jwt, refresh: refresh}
 }
 
 func (s *Service) Login(ctx context.Context, email, password string) (TokenPair, error) {
@@ -103,6 +113,33 @@ func (s *Service) CurrentUser(ctx context.Context, userID string) (Authenticated
 	return authenticated, nil
 }
 
+func (s *Service) Preferences(ctx context.Context, userID string) (Preferences, error) {
+	if err := s.requireActiveUser(ctx, userID); err != nil {
+		return Preferences{}, err
+	}
+	if s.preferences == nil {
+		return Preferences{}, ErrNotFound
+	}
+	preferences, err := s.preferences.GetPreferences(ctx, userID)
+	if errors.Is(err, ErrNotFound) {
+		return DefaultPreferences(), nil
+	}
+	return preferences, err
+}
+
+func (s *Service) PutPreferences(ctx context.Context, userID string, preferences Preferences) error {
+	if err := preferences.Validate(); err != nil {
+		return err
+	}
+	if err := s.requireActiveUser(ctx, userID); err != nil {
+		return err
+	}
+	if s.preferences == nil {
+		return ErrNotFound
+	}
+	return s.preferences.PutPreferences(ctx, userID, preferences)
+}
+
 func (s *Service) Users(ctx context.Context, query UserQuery) (pagination.Page[User], error) {
 	page, size := pagination.Normalize(query.Page, query.Size)
 	items, total, err := s.users.List(ctx, UserFilter{
@@ -129,17 +166,113 @@ func (s *Service) CreateUser(ctx context.Context, input CreateUserInput) (User, 
 	return s.users.Create(ctx, input)
 }
 
+func (s *Service) UpdateUser(ctx context.Context, userID string, input UpdateUserInput) (User, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.Username = strings.TrimSpace(input.Username)
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if input.Email == "" || input.Username == "" {
+		return User{}, ErrInvalidUserInput
+	}
+	management, err := s.managementRepository()
+	if err != nil {
+		return User{}, err
+	}
+	return management.UpdateUser(ctx, userID, input)
+}
+
+func (s *Service) ResetUserPassword(ctx context.Context, userID, password string) error {
+	if len(password) < 12 {
+		return ErrInvalidUserInput
+	}
+	management, err := s.managementRepository()
+	if err != nil {
+		return err
+	}
+	hash, err := s.passwords.Hash(password)
+	if err != nil {
+		return err
+	}
+	if err := s.refresh.RevokeAll(ctx, userID); err != nil {
+		return err
+	}
+	return management.UpdateUserPassword(ctx, userID, hash)
+}
+
 func (s *Service) SetUserActive(ctx context.Context, userID string, active bool) error {
 	if !active {
+		if iamSubject := Subject(ctx); iamSubject != "" && iamSubject == userID {
+			return ErrCannotDeactivateSelf
+		}
 		if err := s.refresh.RevokeAll(ctx, userID); err != nil {
 			return err
 		}
+	}
+	if s.management != nil {
+		return s.management.SetUserActive(ctx, userID, active)
 	}
 	return s.users.SetActive(ctx, userID, active)
 }
 func (s *Service) Roles(ctx context.Context) ([]Role, error) { return s.rbac.Roles(ctx) }
 func (s *Service) Permissions(ctx context.Context) ([]Permission, error) {
 	return s.rbac.Permissions(ctx)
+}
+func (s *Service) ReplaceUserRoles(ctx context.Context, userID string, roleIDs []string) error {
+	management, err := s.managementRepository()
+	if err != nil {
+		return err
+	}
+	roleIDs, err = normalizedIDs(roleIDs)
+	if err != nil {
+		return err
+	}
+	return management.ReplaceUserRoles(ctx, userID, roleIDs)
+}
+func (s *Service) Role(ctx context.Context, roleID string) (RoleDetail, error) {
+	management, err := s.managementRepository()
+	if err != nil {
+		return RoleDetail{}, err
+	}
+	return management.Role(ctx, roleID)
+}
+func (s *Service) CreateRole(ctx context.Context, input RoleInput) (Role, error) {
+	management, err := s.managementRepository()
+	if err != nil {
+		return Role{}, err
+	}
+	input, err = normalizeRoleInput(input)
+	if err != nil {
+		return Role{}, err
+	}
+	return management.CreateRole(ctx, input)
+}
+func (s *Service) UpdateRole(ctx context.Context, roleID string, input RoleInput) (Role, error) {
+	management, err := s.managementRepository()
+	if err != nil {
+		return Role{}, err
+	}
+	input, err = normalizeRoleInput(input)
+	if err != nil {
+		return Role{}, err
+	}
+	return management.UpdateRole(ctx, roleID, input)
+}
+func (s *Service) DeleteRole(ctx context.Context, roleID string) error {
+	management, err := s.managementRepository()
+	if err != nil {
+		return err
+	}
+	return management.DeleteRole(ctx, roleID)
+}
+func (s *Service) ReplaceRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
+	management, err := s.managementRepository()
+	if err != nil {
+		return err
+	}
+	permissionIDs, err = normalizedIDs(permissionIDs)
+	if err != nil {
+		return err
+	}
+	return management.ReplaceRolePermissions(ctx, roleID, permissionIDs)
 }
 func (s *Service) AssignRole(ctx context.Context, userID, roleID string) error {
 	return s.rbac.AssignRole(ctx, userID, roleID)
@@ -156,6 +289,53 @@ func (s *Service) Authorize(ctx context.Context, userID, required string) error 
 		return ErrPermissionDenied
 	}
 	return nil
+}
+
+func (s *Service) requireActiveUser(ctx context.Context, userID string) error {
+	user, err := s.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if !user.Active {
+		return ErrInactiveUser
+	}
+	return nil
+}
+
+func (s *Service) managementRepository() (ManagementRepository, error) {
+	if s.management == nil {
+		return nil, ErrManagementUnavailable
+	}
+	return s.management, nil
+}
+
+func normalizeRoleInput(input RoleInput) (RoleInput, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Description = strings.TrimSpace(input.Description)
+	if input.Name == "" {
+		return RoleInput{}, ErrInvalidUserInput
+	}
+	return input, nil
+}
+
+func normalizedIDs(values []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, ErrInvalidUserInput
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result, nil
 }
 
 func (s *Service) issuePair(ctx context.Context, userID string) (TokenPair, error) {

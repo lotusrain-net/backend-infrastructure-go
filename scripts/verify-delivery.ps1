@@ -19,6 +19,10 @@ function Read-Required([string]$RelativePath) {
 
 $dockerfile = Read-Required "Dockerfile"
 Assert-True ($dockerfile -match '(?im)^FROM\s+\S+\s+AS\s+build\s*$') "Dockerfile must use a named build stage"
+Assert-True ($dockerfile -match '(?im)^ARG\s+IMAGE_REGISTRY=public\.ecr\.aws/docker\s*$') "Dockerfile must define the default container registry"
+Assert-True ($dockerfile -match '(?im)^FROM\s+\$\{IMAGE_REGISTRY\}/library/golang:1\.26\.5\s+AS\s+build\s*$') "Dockerfile must use IMAGE_REGISTRY for the Go build image"
+Assert-True ($dockerfile -match '(?im)^ARG\s+GOPROXY=https://goproxy\.cn,direct\s*$') "Dockerfile must define the Go module mirror"
+Assert-True ($dockerfile -match '(?im)^ARG\s+GOSUMDB=sum\.golang\.google\.cn\s*$') "Dockerfile must define the Go checksum database"
 Assert-True ($dockerfile -match '(?im)^USER\s+10001:10001\s*$') "Dockerfile runtime must use UID/GID 10001"
 foreach ($binary in @("api", "worker", "scheduler", "migrate", "seed-admin")) {
     Assert-True ($dockerfile -match ("/app/" + [regex]::Escape($binary))) "Dockerfile must install /app/$binary"
@@ -30,7 +34,8 @@ Assert-True ($dockerfile -match '(?im)^COPY\s+.*db/migrations/\*\.sql\s+/app/mig
 Assert-True ($dockerfile -notmatch '(?im)^USER\s+(root|0)(:0)?\s*$') "Dockerfile must not switch the runtime back to root"
 
 $webDockerfile = Read-Required "web/Dockerfile"
-Assert-True ($webDockerfile -match '(?im)^FROM\s+node:20-alpine\s+AS\s+deps\s*$') "Web Dockerfile must use Node 20"
+Assert-True ($webDockerfile -match '(?im)^ARG\s+IMAGE_REGISTRY=public\.ecr\.aws/docker\s*$') "Web Dockerfile must define the default container registry"
+Assert-True ($webDockerfile -match '(?im)^FROM\s+\$\{IMAGE_REGISTRY\}/library/node:20-alpine\s+AS\s+deps\s*$') "Web Dockerfile must use Node 20 through IMAGE_REGISTRY"
 Assert-True ($webDockerfile -notmatch '(?im)^FROM\s+node:22') "Web Dockerfile must not use Node 22"
 Assert-True ($webDockerfile -match '(?im)^ARG\s+API_PROXY_TARGET\s*$') "Web Dockerfile must accept API_PROXY_TARGET at build time"
 Assert-True ($webDockerfile -match '(?im)^ENV\s+API_PROXY_TARGET=\$API_PROXY_TARGET\s*$') "Web Dockerfile must expose the build proxy target to Next.js"
@@ -106,8 +111,8 @@ foreach ($service in $requiredServices) {
 }
 Assert-True ($null -eq $config.services.postgres.ports) "PostgreSQL must not publish host ports"
 Assert-True ($null -eq $config.services.redis.ports) "Redis must not publish host ports"
-Assert-True ($config.services.postgres.image -match '^postgres:15(?:-|$)') "Compose must use PostgreSQL 15"
-Assert-True ($config.services.redis.image -match '^redis:7(?:-|$)') "Compose must use Redis 7"
+Assert-True ($config.services.postgres.image -match '/library/postgres:15(?:-|$)') "Compose must use PostgreSQL 15 through the configured registry"
+Assert-True ($config.services.redis.image -match '/library/redis:7(?:-|$)') "Compose must use Redis 7 through the configured registry"
 Assert-True (($config.services.redis.command -join " ") -match '(?i)--appendonly\s+yes') "Redis must enable AOF"
 Assert-True ($config.networks.backend.internal -eq $true) "Backend service network must be private/internal"
 Assert-True ($null -ne $config.networks.edge) "Compose must define an edge network for the published API port"
@@ -134,8 +139,12 @@ foreach ($service in @("api", "worker", "scheduler")) {
     Assert-True ($config.services.$service.read_only -eq $true) "$service root filesystem must be read-only"
     Assert-True ($config.services.$service.security_opt -contains "no-new-privileges:true") "$service must disable privilege escalation"
 }
-Assert-True ($null -ne $config.services.api.build) "API service must own the single application image build"
+Assert-True ($null -ne $config.services.api.build) "API service must inherit the shared application image build"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$config.services.api.build.args.IMAGE_REGISTRY)) "API build must receive a container registry"
+Assert-True ($config.services.api.build.args.GOPROXY -eq "https://goproxy.cn,direct") "API build must receive the Go module mirror"
+Assert-True ($config.services.api.build.args.GOSUMDB -eq "sum.golang.google.cn") "API build must receive the Go checksum database"
 Assert-True ($null -ne $config.services.web.build) "Web service must declare its own frontend build"
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$config.services.web.build.args.IMAGE_REGISTRY)) "Web build must receive a container registry"
 Assert-True ($config.services.web.build.context -match '[/\\]web$') "Web service build context must resolve to the repository web directory"
 $webBuildProxyTarget = [string]$config.services.web.build.args.API_PROXY_TARGET
 $webRuntimeProxyTarget = [string]$config.services.web.environment.API_PROXY_TARGET
@@ -155,7 +164,9 @@ Assert-True ($webPorts[0].published -eq "3000") "Web default published port must
 Assert-True ($config.services.api.environment.COOKIE_SECURE -eq "false") "The HTTP localhost Compose profile must set COOKIE_SECURE=false so browser sessions can retain authentication cookies"
 Assert-True ($config.services.api.environment.APP_ENV -eq "development") "The HTTP localhost Compose profile must identify itself as development"
 foreach ($service in @("migrate", "seed-admin", "worker", "scheduler")) {
-    Assert-True ($null -eq $config.services.$service.build) "$service must reuse the application image without declaring another build"
+    Assert-True ($null -ne $config.services.$service.build) "$service must inherit the shared application image build"
+    Assert-True ($config.services.$service.build.context -eq $config.services.api.build.context) "$service must use the API build context"
+    Assert-True ($config.services.$service.build.dockerfile -eq $config.services.api.build.dockerfile) "$service must use the API Dockerfile"
     Assert-True ($config.services.$service.image -eq $config.services.api.image) "$service must reuse the API application image"
 }
 foreach ($name in @("ADMIN_EMAIL", "ADMIN_USERNAME", "ADMIN_PASSWORD")) {

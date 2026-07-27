@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-FROM golang:1.26.5 AS build
+ARG IMAGE_REGISTRY=public.ecr.aws/docker
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+FROM ${IMAGE_REGISTRY}/library/golang:1.26.5 AS build
+
+ARG GOPROXY
+ARG GOSUMDB
+ENV GOPROXY=$GOPROXY
+ENV GOSUMDB=$GOSUMDB
 
 WORKDIR /src
 

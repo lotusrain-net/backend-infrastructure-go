@@ -1,5 +1,6 @@
 import { queryClient } from "@/lib/query/client";
 import { clearAuthState } from "@/stores/auth-store";
+import { clearActiveThemeState } from "@/stores/theme-store";
 import type { ApiEnvelope, ApiFieldErrors } from "@/types/api";
 
 export interface ApiClientOptions {
@@ -208,6 +209,7 @@ export class ApiClient {
 
   private handleSessionExpired() {
     clearAuthState();
+    clearActiveThemeState();
     queryClient.clear();
     this.options.redirectToLogin?.("session_expired");
   }

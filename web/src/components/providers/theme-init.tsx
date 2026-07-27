@@ -2,17 +2,15 @@
 
 import * as React from "react";
 import {
-  hydrateThemeStore,
   initializeThemeStore,
   useThemeStore,
 } from "@/stores/theme-store";
 
 export function ThemeInit() {
-  const colorMode = useThemeStore((state) => state.colorMode);
-  const theme = useThemeStore((state) => state.theme);
+  const colorMode = useThemeStore((state) => state.preferences.color_mode);
+  const theme = useThemeStore((state) => state.preferences.theme);
 
   React.useEffect(() => {
-    hydrateThemeStore();
     initializeThemeStore();
   }, []);
 

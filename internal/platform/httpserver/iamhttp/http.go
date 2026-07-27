@@ -41,13 +41,23 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 		r.Group(func(r chi.Router) {
 			r.Use(Authenticate(jwt))
 			r.Get("/users/me", h.me)
+			r.Get("/users/me/preferences", h.preferences)
+			r.Put("/users/me/preferences", h.putPreferences)
 			r.With(RequirePermission(app, "users:read")).Get("/users", h.users)
 			r.With(RequirePermission(app, "users:write")).Post("/users", h.createUser)
+			r.With(RequirePermission(app, "users:write")).Patch("/users/{userID}", h.updateUser)
+			r.With(RequirePermission(app, "users:write")).Post("/users/{userID}/password/reset", h.resetUserPassword)
 			r.With(RequirePermission(app, "users:write")).Patch("/users/{userID}/active", h.setUserActive)
 			r.With(RequirePermission(app, "roles:read")).Get("/roles", h.roles)
+			r.With(RequirePermission(app, "roles:read")).Get("/roles/{roleID}", h.role)
+			r.With(RequirePermission(app, "roles:write")).Post("/roles", h.createRole)
+			r.With(RequirePermission(app, "roles:write")).Patch("/roles/{roleID}", h.updateRole)
+			r.With(RequirePermission(app, "roles:write")).Delete("/roles/{roleID}", h.deleteRole)
 			r.With(RequirePermission(app, "roles:read")).Get("/permissions", h.permissions)
 			r.With(RequirePermission(app, "roles:write")).Post("/users/{userID}/roles/{roleID}", h.assignRole)
+			r.With(RequirePermission(app, "roles:write")).Put("/users/{userID}/roles", h.replaceUserRoles)
 			r.With(RequirePermission(app, "roles:write")).Post("/roles/{roleID}/permissions/{permissionID}", h.grantPermission)
+			r.With(RequirePermission(app, "roles:write")).Put("/roles/{roleID}/permissions", h.replaceRolePermissions)
 		})
 	})
 }
@@ -161,6 +171,27 @@ func (h handler) me(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusOK, user)
 }
 
+func (h handler) preferences(w http.ResponseWriter, r *http.Request) {
+	preferences, err := h.app.Preferences(r.Context(), iam.Subject(r.Context()))
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, preferences)
+}
+
+func (h handler) putPreferences(w http.ResponseWriter, r *http.Request) {
+	var preferences iam.Preferences
+	if !decode(w, r, &preferences) {
+		return
+	}
+	if err := h.app.PutPreferences(r.Context(), iam.Subject(r.Context()), preferences); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, preferences)
+}
+
 func (h handler) users(w http.ResponseWriter, r *http.Request) {
 	filter := iam.UserFilter{Query: strings.TrimSpace(r.URL.Query().Get("query"))}
 	if value := r.URL.Query().Get("is_active"); value != "" {
@@ -196,6 +227,33 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusCreated, user)
 }
 
+func (h handler) updateUser(w http.ResponseWriter, r *http.Request) {
+	var input iam.UpdateUserInput
+	if !decode(w, r, &input) {
+		return
+	}
+	user, err := h.app.UpdateUser(r.Context(), chi.URLParam(r, "userID"), input)
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, user)
+}
+
+func (h handler) resetUserPassword(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		NewPassword string `json:"new_password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if err := h.app.ResetUserPassword(r.Context(), chi.URLParam(r, "userID"), input.NewPassword); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, map[string]bool{"reset": true})
+}
+
 func (h handler) setUserActive(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Active *bool `json:"is_active"`
@@ -223,6 +281,49 @@ func (h handler) roles(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusOK, items)
 }
 
+func (h handler) role(w http.ResponseWriter, r *http.Request) {
+	role, err := h.app.Role(r.Context(), chi.URLParam(r, "roleID"))
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, role)
+}
+
+func (h handler) createRole(w http.ResponseWriter, r *http.Request) {
+	var input iam.RoleInput
+	if !decode(w, r, &input) {
+		return
+	}
+	role, err := h.app.CreateRole(r.Context(), input)
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusCreated, role)
+}
+
+func (h handler) updateRole(w http.ResponseWriter, r *http.Request) {
+	var input iam.RoleInput
+	if !decode(w, r, &input) {
+		return
+	}
+	role, err := h.app.UpdateRole(r.Context(), chi.URLParam(r, "roleID"), input)
+	if err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, role)
+}
+
+func (h handler) deleteRole(w http.ResponseWriter, r *http.Request) {
+	if err := h.app.DeleteRole(r.Context(), chi.URLParam(r, "roleID")); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
 func (h handler) permissions(w http.ResponseWriter, r *http.Request) {
 	items, err := h.app.Permissions(r.Context())
 	if err != nil {
@@ -240,12 +341,48 @@ func (h handler) assignRole(w http.ResponseWriter, r *http.Request) {
 	response.Write(w, http.StatusOK, map[string]bool{"assigned": true})
 }
 
+func (h handler) replaceUserRoles(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		RoleIDs *[]string `json:"role_ids"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.RoleIDs == nil {
+		response.WriteError(w, apperror.Validation(map[string]string{"role_ids": "is required"}))
+		return
+	}
+	if err := h.app.ReplaceUserRoles(r.Context(), chi.URLParam(r, "userID"), *input.RoleIDs); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, map[string]bool{"replaced": true})
+}
+
 func (h handler) grantPermission(w http.ResponseWriter, r *http.Request) {
 	if err := h.app.GrantPermission(r.Context(), chi.URLParam(r, "roleID"), chi.URLParam(r, "permissionID")); err != nil {
 		writeIAMError(w, err)
 		return
 	}
 	response.Write(w, http.StatusOK, map[string]bool{"granted": true})
+}
+
+func (h handler) replaceRolePermissions(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		PermissionIDs *[]string `json:"permission_ids"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.PermissionIDs == nil {
+		response.WriteError(w, apperror.Validation(map[string]string{"permission_ids": "is required"}))
+		return
+	}
+	if err := h.app.ReplaceRolePermissions(r.Context(), chi.URLParam(r, "roleID"), *input.PermissionIDs); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	response.Write(w, http.StatusOK, map[string]bool{"replaced": true})
 }
 
 func (h handler) setRefreshCookie(w http.ResponseWriter, value string) {
@@ -309,7 +446,7 @@ func writeIAMError(w http.ResponseWriter, err error) {
 		response.WriteError(w, apperror.New(401, "invalid credentials", 401, err))
 	case errors.Is(err, iam.ErrInactiveUser), errors.Is(err, iam.ErrPermissionDenied):
 		response.WriteError(w, apperror.New(403, err.Error(), 403, err))
-	case errors.Is(err, iam.ErrDuplicateIdentity):
+	case errors.Is(err, iam.ErrDuplicateIdentity), errors.Is(err, iam.ErrCannotDeactivateSelf), errors.Is(err, iam.ErrLastActiveAdministrator), errors.Is(err, iam.ErrSystemRoleProtected):
 		response.WriteError(w, apperror.New(409, err.Error(), 409, err))
 	case errors.Is(err, iam.ErrInvalidUserInput):
 		response.WriteError(w, apperror.Validation(map[string]string{"user": err.Error()}))

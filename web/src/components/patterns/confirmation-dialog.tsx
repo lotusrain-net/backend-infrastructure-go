@@ -26,11 +26,11 @@ export function ConfirmationDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(28rem,90vw)] -translate-x-1/2 -translate-y-1/2 border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-6 shadow-xl">
-          <Dialog.Title className="text-xl font-semibold text-[color:var(--fg-default)]">
+        <Dialog.Content className="fixed left-1/2 top-1/2 w-[min(28rem,90vw)] -translate-x-1/2 -translate-y-1/2 border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-6 shadow-xl [border-radius:var(--radius-lg)]">
+          <Dialog.Title className="text-[length:var(--text-heading)] font-semibold text-[color:var(--fg-default)]">
             {title}
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-[color:var(--fg-muted)]">
+          <Dialog.Description className="mt-2 text-[length:var(--text-body-sm)] text-[color:var(--fg-muted)]">
             {description}
           </Dialog.Description>
           <div className="mt-6 flex justify-end gap-3">

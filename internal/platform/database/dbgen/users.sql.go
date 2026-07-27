@@ -11,12 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, username, password_hash, display_name)
-VALUES ($1, $2, $3, $4)
-RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
-`
-
 const countUsers = `-- name: CountUsers :one
 SELECT count(*) FROM users
 WHERE ($1::text IS NULL
@@ -37,6 +31,12 @@ func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, 
 	err := row.Scan(&count)
 	return count, err
 }
+
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (email, username, password_hash, display_name)
+VALUES ($1, $2, $3, $4)
+RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
+`
 
 type CreateUserParams struct {
 	Email        string `json:"email"`
@@ -134,7 +134,12 @@ type ListUsersParams struct {
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, listUsers, arg.Query, arg.Active, arg.Offset, arg.Limit)
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.Query,
+		arg.Active,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +184,7 @@ func (q *Queries) SetUserActive(ctx context.Context, arg SetUserActiveParams) (i
 	return result.RowsAffected(), nil
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :exec
+const updateUserPassword = `-- name: UpdateUserPassword :execrows
 UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1
 `
 
@@ -188,15 +193,19 @@ type UpdateUserPasswordParams struct {
 	PasswordHash string      `json:"password_hash"`
 }
 
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
-	return err
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const updateUserProfile = `-- name: UpdateUserProfile :exec
+const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET email = $2, username = $3, display_name = $4, updated_at = NOW()
 WHERE id = $1
+RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
 `
 
 type UpdateUserProfileParams struct {
@@ -206,12 +215,23 @@ type UpdateUserProfileParams struct {
 	DisplayName string      `json:"display_name"`
 }
 
-func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) error {
-	_, err := q.db.Exec(ctx, updateUserProfile,
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
 		arg.ID,
 		arg.Email,
 		arg.Username,
 		arg.DisplayName,
 	)
-	return err
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Username,
+		&i.PasswordHash,
+		&i.DisplayName,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

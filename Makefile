@@ -1,4 +1,4 @@
-.PHONY: test race vet build staticcheck govulncheck sqlc-verify delivery-verify docker-build compose-config docker-smoke web-install web-lint web-typecheck web-test web-build web-check backend-check check
+.PHONY: test race vet build staticcheck govulncheck sqlc-verify delivery-verify docker-build compose-config compose-up compose-down docker-smoke web-install web-lint web-typecheck web-test web-build web-check backend-check check
 
 STATICCHECK_VERSION ?= v0.7.0
 GOVULNCHECK_VERSION ?= v1.6.0
@@ -32,6 +32,12 @@ docker-build:
 
 compose-config:
 	docker compose --env-file .env.example -f deployments/compose.yml config
+
+compose-up:
+	./scripts/compose-up.sh
+
+compose-down:
+	docker compose --env-file .env -f deployments/compose.yml down
 
 docker-smoke:
 	pwsh -File ./scripts/docker-smoke.ps1

@@ -27,12 +27,13 @@ WHERE (sqlc.narg('query')::text IS NULL
     OR display_name ILIKE '%' || sqlc.narg('query') || '%')
   AND (sqlc.narg('active')::boolean IS NULL OR is_active = sqlc.narg('active'));
 
--- name: UpdateUserProfile :exec
+-- name: UpdateUserProfile :one
 UPDATE users
 SET email = $2, username = $3, display_name = $4, updated_at = NOW()
-WHERE id = $1;
+WHERE id = $1
+RETURNING *;
 
--- name: UpdateUserPassword :exec
+-- name: UpdateUserPassword :execrows
 UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1;
 
 -- name: SetUserActive :execrows

@@ -28,6 +28,16 @@ type fakeApplication struct {
 	loginCalls               int
 	usersCalls               int
 	setActiveCalls           int
+	preferences              iam.Preferences
+	preferenceUserID         string
+	preferenceErr            error
+	updateUserInput          iam.UpdateUserInput
+	resetPassword            string
+	userRoleIDs              []string
+	roleDetail               iam.RoleDetail
+	roleInput                iam.RoleInput
+	roleID                   string
+	permissionIDs            []string
 }
 
 func (f *fakeApplication) Login(context.Context, string, string) (iam.TokenPair, error) {
@@ -56,7 +66,49 @@ func (f *fakeApplication) SetUserActive(context.Context, string, bool) error {
 	f.setActiveCalls++
 	return f.authErr
 }
+func (f *fakeApplication) UpdateUser(_ context.Context, _ string, input iam.UpdateUserInput) (iam.User, error) {
+	f.updateUserInput = input
+	return f.user.User, f.authErr
+}
+func (f *fakeApplication) ResetUserPassword(_ context.Context, _ string, password string) error {
+	f.resetPassword = password
+	return f.authErr
+}
+func (f *fakeApplication) ReplaceUserRoles(_ context.Context, _ string, roleIDs []string) error {
+	f.userRoleIDs = append([]string(nil), roleIDs...)
+	return f.authErr
+}
+func (f *fakeApplication) Preferences(_ context.Context, userID string) (iam.Preferences, error) {
+	f.preferenceUserID = userID
+	return f.preferences, f.preferenceErr
+}
+func (f *fakeApplication) PutPreferences(_ context.Context, userID string, preferences iam.Preferences) error {
+	f.preferenceUserID = userID
+	f.preferences = preferences
+	return f.preferenceErr
+}
 func (f *fakeApplication) Roles(context.Context) ([]iam.Role, error) { return []iam.Role{}, f.authErr }
+func (f *fakeApplication) Role(_ context.Context, roleID string) (iam.RoleDetail, error) {
+	f.roleID = roleID
+	return f.roleDetail, f.authErr
+}
+func (f *fakeApplication) CreateRole(_ context.Context, input iam.RoleInput) (iam.Role, error) {
+	f.roleInput = input
+	return iam.Role{ID: "role-1", Name: input.Name, Description: input.Description}, f.authErr
+}
+func (f *fakeApplication) UpdateRole(_ context.Context, roleID string, input iam.RoleInput) (iam.Role, error) {
+	f.roleID, f.roleInput = roleID, input
+	return iam.Role{ID: roleID, Name: input.Name, Description: input.Description}, f.authErr
+}
+func (f *fakeApplication) DeleteRole(_ context.Context, roleID string) error {
+	f.roleID = roleID
+	return f.authErr
+}
+func (f *fakeApplication) ReplaceRolePermissions(_ context.Context, roleID string, permissionIDs []string) error {
+	f.roleID = roleID
+	f.permissionIDs = append([]string(nil), permissionIDs...)
+	return f.authErr
+}
 func (f *fakeApplication) Permissions(context.Context) ([]iam.Permission, error) {
 	return []iam.Permission{}, f.authErr
 }
@@ -190,6 +242,81 @@ func TestMeRejectsTamperedTokenAndInactiveUser(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("inactive status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPreferencesRoutesUseOnlyAuthenticatedSubjectAndFixedPayload(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	raw, _ := jwt.Issue("user-1")
+	app := &fakeApplication{preferences: iam.DefaultPreferences()}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/me/preferences", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || app.preferenceUserID != "user-1" {
+		t.Fatalf("GET status=%d subject=%q body=%s", recorder.Code, app.preferenceUserID, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/users/me/preferences", strings.NewReader(`{"theme":"cyberpunk","color_mode":"dark","accent_color":"#1A2B3C","font_scale":"large","radius_scale":"rounded"}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || app.preferenceUserID != "user-1" {
+		t.Fatalf("PUT status=%d subject=%q body=%s", recorder.Code, app.preferenceUserID, recorder.Body.String())
+	}
+	if app.preferences.Theme != iam.ThemeCyberpunk || app.preferences.AccentColor == nil || *app.preferences.AccentColor != "#1A2B3C" {
+		t.Fatalf("PUT preferences = %+v", app.preferences)
+	}
+}
+
+func TestManagementRoutesForwardAtomicPayloads(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	raw, _ := jwt.Issue("administrator")
+	app := &fakeApplication{user: iam.AuthenticatedUser{User: iam.User{ID: "target", Active: true}}}
+	router := chi.NewRouter()
+	RegisterRoutes(router, app, jwt, HTTPConfig{RefreshTTL: time.Hour})
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/target", strings.NewReader(`{"email":"target@example.com","username":"target","display_name":"Target"}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || app.updateUserInput.Username != "target" {
+		t.Fatalf("PATCH user status=%d input=%+v body=%s", recorder.Code, app.updateUserInput, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/users/target/password/reset", strings.NewReader(`{"new_password":"new-password-123"}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || app.resetPassword != "new-password-123" {
+		t.Fatalf("reset status=%d password=%q body=%s", recorder.Code, app.resetPassword, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/users/target/roles", strings.NewReader(`{"role_ids":["role-a","role-b"]}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !slices.Equal(app.userRoleIDs, []string{"role-a", "role-b"}) {
+		t.Fatalf("replace user roles status=%d roles=%v body=%s", recorder.Code, app.userRoleIDs, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/roles", strings.NewReader(`{"name":"operators","description":"Operators"}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || app.roleInput.Name != "operators" {
+		t.Fatalf("create role status=%d input=%+v body=%s", recorder.Code, app.roleInput, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/roles/role-a/permissions", strings.NewReader(`{"permission_ids":["permission-a"]}`))
+	request.Header.Set("Authorization", "Bearer "+raw)
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || app.roleID != "role-a" || !slices.Equal(app.permissionIDs, []string{"permission-a"}) {
+		t.Fatalf("replace role permissions status=%d role=%q permissions=%v body=%s", recorder.Code, app.roleID, app.permissionIDs, recorder.Body.String())
 	}
 }
 

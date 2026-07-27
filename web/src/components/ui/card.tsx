@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLElement>) {
   return (
     <section
-      className={cn("border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-5", className)}
+      className={cn("border border-[color:var(--border-subtle)] bg-[color:var(--surface)] p-5 [border-radius:var(--radius-lg)]", className)}
       {...props}
     />
   );

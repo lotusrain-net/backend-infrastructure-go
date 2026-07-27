@@ -34,6 +34,12 @@ func (a *auditedIAM) Logout(ctx context.Context, token string) error {
 func (a *auditedIAM) CurrentUser(ctx context.Context, id string) (iam.AuthenticatedUser, error) {
 	return a.next.CurrentUser(ctx, id)
 }
+func (a *auditedIAM) Preferences(ctx context.Context, id string) (iam.Preferences, error) {
+	return a.next.Preferences(ctx, id)
+}
+func (a *auditedIAM) PutPreferences(ctx context.Context, id string, preferences iam.Preferences) error {
+	return a.next.PutPreferences(ctx, id, preferences)
+}
 func (a *auditedIAM) Users(ctx context.Context, query iam.UserQuery) (pagination.Page[iam.User], error) {
 	return a.next.Users(ctx, query)
 }
@@ -41,11 +47,42 @@ func (a *auditedIAM) CreateUser(ctx context.Context, input iam.CreateUserInput) 
 	value, err := a.next.CreateUser(ctx, input)
 	return value, a.record(ctx, "administration.user.create", "user", value.ID, nil, err)
 }
+func (a *auditedIAM) UpdateUser(ctx context.Context, id string, input iam.UpdateUserInput) (iam.User, error) {
+	value, err := a.next.UpdateUser(ctx, id, input)
+	return value, a.record(ctx, "administration.user.update", "user", id, nil, err)
+}
+func (a *auditedIAM) ResetUserPassword(ctx context.Context, id, password string) error {
+	err := a.next.ResetUserPassword(ctx, id, password)
+	return a.record(ctx, "administration.user.password.reset", "user", id, nil, err)
+}
 func (a *auditedIAM) SetUserActive(ctx context.Context, id string, active bool) error {
 	err := a.next.SetUserActive(ctx, id, active)
 	return a.record(ctx, "administration.user.active", "user", id, nil, err)
 }
+func (a *auditedIAM) ReplaceUserRoles(ctx context.Context, userID string, roleIDs []string) error {
+	err := a.next.ReplaceUserRoles(ctx, userID, roleIDs)
+	return a.record(ctx, "administration.user.roles.replace", "user", userID, nil, err)
+}
 func (a *auditedIAM) Roles(ctx context.Context) ([]iam.Role, error) { return a.next.Roles(ctx) }
+func (a *auditedIAM) Role(ctx context.Context, id string) (iam.RoleDetail, error) {
+	return a.next.Role(ctx, id)
+}
+func (a *auditedIAM) CreateRole(ctx context.Context, input iam.RoleInput) (iam.Role, error) {
+	value, err := a.next.CreateRole(ctx, input)
+	return value, a.record(ctx, "administration.role.create", "role", value.ID, nil, err)
+}
+func (a *auditedIAM) UpdateRole(ctx context.Context, id string, input iam.RoleInput) (iam.Role, error) {
+	value, err := a.next.UpdateRole(ctx, id, input)
+	return value, a.record(ctx, "administration.role.update", "role", id, nil, err)
+}
+func (a *auditedIAM) DeleteRole(ctx context.Context, id string) error {
+	err := a.next.DeleteRole(ctx, id)
+	return a.record(ctx, "administration.role.delete", "role", id, nil, err)
+}
+func (a *auditedIAM) ReplaceRolePermissions(ctx context.Context, roleID string, permissionIDs []string) error {
+	err := a.next.ReplaceRolePermissions(ctx, roleID, permissionIDs)
+	return a.record(ctx, "administration.role.permissions.replace", "role", roleID, nil, err)
+}
 func (a *auditedIAM) Permissions(ctx context.Context) ([]iam.Permission, error) {
 	return a.next.Permissions(ctx)
 }

@@ -283,6 +283,24 @@ type fakeRBAC struct {
 	permissions []string
 }
 
+type fakePreferences struct {
+	preferences Preferences
+	getErr      error
+	putErr      error
+	saved       Preferences
+	savedUserID string
+}
+
+func (f *fakePreferences) GetPreferences(context.Context, string) (Preferences, error) {
+	return f.preferences, f.getErr
+}
+
+func (f *fakePreferences) PutPreferences(_ context.Context, userID string, preferences Preferences) error {
+	f.savedUserID = userID
+	f.saved = preferences
+	return f.putErr
+}
+
 func (f *fakeRBAC) PermissionsForUser(context.Context, string) ([]string, error) {
 	return f.permissions, nil
 }
@@ -292,6 +310,33 @@ func (f *fakeRBAC) Permissions(context.Context) ([]Permission, error) {
 }
 func (f *fakeRBAC) AssignRole(context.Context, string, string) error      { return nil }
 func (f *fakeRBAC) GrantPermission(context.Context, string, string) error { return nil }
+
+func TestPreferencesDefaultOnFirstReadAndValidatedFullReplacement(t *testing.T) {
+	users := &fakeUsers{byID: map[string]User{"user-1": {ID: "user-1", Active: true}}}
+	preferences := &fakePreferences{getErr: ErrNotFound}
+	service := NewServiceWithPreferences(users, nil, preferences, nil, nil, nil)
+
+	got, err := service.Preferences(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("Preferences() error = %v", err)
+	}
+	if got != DefaultPreferences() {
+		t.Fatalf("Preferences() = %+v, want defaults", got)
+	}
+
+	accent := "#1A2B3C"
+	want := Preferences{Theme: ThemeCyberpunk, ColorMode: ColorModeDark, AccentColor: &accent, FontScale: FontScaleLarge, RadiusScale: RadiusScaleRounded}
+	if err := service.PutPreferences(context.Background(), "user-1", want); err != nil {
+		t.Fatalf("PutPreferences() error = %v", err)
+	}
+	if preferences.savedUserID != "user-1" || preferences.saved.Theme != ThemeCyberpunk || preferences.saved.AccentColor == nil || *preferences.saved.AccentColor != accent {
+		t.Fatalf("saved preferences = user:%q preferences:%+v", preferences.savedUserID, preferences.saved)
+	}
+
+	if err := service.PutPreferences(context.Background(), "user-1", Preferences{}); !errors.Is(err, ErrInvalidUserInput) {
+		t.Fatalf("PutPreferences() invalid error = %v", err)
+	}
+}
 
 func (f *fakeUsers) FindByEmail(_ context.Context, email string) (User, error) {
 	u, ok := f.byEmail[email]
@@ -485,6 +530,102 @@ func TestRevokeAllInvalidatesLatestRefreshToken(t *testing.T) {
 	}
 	if _, err := store.Consume(context.Background(), raw); !errors.Is(err, ErrInvalidRefreshToken) {
 		t.Fatalf("consume=%v", err)
+	}
+}
+
+type fakeManagement struct {
+	updatedInput   UpdateUserInput
+	updatedUser    User
+	updateErr      error
+	passwordHash   string
+	passwordErr    error
+	activeUserID   string
+	active         bool
+	activeErr      error
+	userRoleIDs    []string
+	userRolesErr   error
+	role           RoleDetail
+	roleErr        error
+	createdRole    RoleInput
+	updatedRole    RoleInput
+	deletedRoleID  string
+	permissionIDs  []string
+	permissionsErr error
+}
+
+func (f *fakeManagement) UpdateUser(_ context.Context, _ string, input UpdateUserInput) (User, error) {
+	f.updatedInput = input
+	return f.updatedUser, f.updateErr
+}
+func (f *fakeManagement) UpdateUserPassword(_ context.Context, _ string, passwordHash string) error {
+	f.passwordHash = passwordHash
+	return f.passwordErr
+}
+func (f *fakeManagement) SetUserActive(_ context.Context, userID string, active bool) error {
+	f.activeUserID, f.active = userID, active
+	return f.activeErr
+}
+func (f *fakeManagement) ReplaceUserRoles(_ context.Context, _ string, roleIDs []string) error {
+	f.userRoleIDs = append([]string(nil), roleIDs...)
+	return f.userRolesErr
+}
+func (f *fakeManagement) Role(context.Context, string) (RoleDetail, error) { return f.role, f.roleErr }
+func (f *fakeManagement) CreateRole(_ context.Context, input RoleInput) (Role, error) {
+	f.createdRole = input
+	return Role{ID: "role-1", Name: input.Name, Description: input.Description}, f.roleErr
+}
+func (f *fakeManagement) UpdateRole(_ context.Context, _ string, input RoleInput) (Role, error) {
+	f.updatedRole = input
+	return Role{ID: "role-1", Name: input.Name, Description: input.Description}, f.roleErr
+}
+func (f *fakeManagement) DeleteRole(_ context.Context, roleID string) error {
+	f.deletedRoleID = roleID
+	return f.roleErr
+}
+func (f *fakeManagement) ReplaceRolePermissions(_ context.Context, _ string, permissionIDs []string) error {
+	f.permissionIDs = append([]string(nil), permissionIDs...)
+	return f.permissionsErr
+}
+
+func TestManagementMutationsNormalizeInputsAndPreserveSafetyGuards(t *testing.T) {
+	users := &fakeUsers{byID: map[string]User{
+		"administrator": {ID: "administrator", Active: true},
+		"target":        {ID: "target", Active: true},
+	}}
+	management := &fakeManagement{updatedUser: User{ID: "target", Active: true}}
+	jwt, _ := NewJWTManager([]byte("0123456789abcdef0123456789abcdef"), "test", time.Minute)
+	service := NewServiceWithManagement(users, nil, nil, management, &recordingPasswords{}, jwt, NewRefreshStore(&memoryRefreshCache{}, "iam:test", time.Hour))
+
+	if _, err := service.UpdateUser(context.Background(), "target", UpdateUserInput{Email: " TARGET@EXAMPLE.COM ", Username: " target ", DisplayName: " Target "}); err != nil {
+		t.Fatalf("UpdateUser() error = %v", err)
+	}
+	if management.updatedInput.Email != "target@example.com" || management.updatedInput.Username != "target" || management.updatedInput.DisplayName != "Target" {
+		t.Fatalf("normalized update = %+v", management.updatedInput)
+	}
+	if err := service.ResetUserPassword(context.Background(), "target", "new-password-123"); err != nil {
+		t.Fatalf("ResetUserPassword() error = %v", err)
+	}
+	if management.passwordHash != "hash" {
+		t.Fatalf("stored password hash = %q", management.passwordHash)
+	}
+
+	self := WithSubject(context.Background(), "administrator")
+	if err := service.SetUserActive(self, "administrator", false); !errors.Is(err, ErrCannotDeactivateSelf) {
+		t.Fatalf("SetUserActive(self) error = %v", err)
+	}
+	management.activeErr = ErrLastActiveAdministrator
+	if err := service.SetUserActive(context.Background(), "target", false); !errors.Is(err, ErrLastActiveAdministrator) {
+		t.Fatalf("SetUserActive(last admin) error = %v", err)
+	}
+	if management.activeUserID != "target" || management.active {
+		t.Fatalf("active mutation = user:%q active:%t", management.activeUserID, management.active)
+	}
+
+	if err := service.ReplaceUserRoles(context.Background(), "target", []string{"role-a", "role-b"}); err != nil {
+		t.Fatalf("ReplaceUserRoles() error = %v", err)
+	}
+	if got := strings.Join(management.userRoleIDs, ","); got != "role-a,role-b" {
+		t.Fatalf("role IDs = %q", got)
 	}
 }
 

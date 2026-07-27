@@ -37,3 +37,36 @@ func TestCreateUserInputDecodesOpenAPIJSONFieldNames(t *testing.T) {
 		t.Fatalf("decoded input = %+v", input)
 	}
 }
+
+func TestPreferencesDefaultsAndValidation(t *testing.T) {
+	defaults := DefaultPreferences()
+	if defaults.Theme != ThemeEnterprise || defaults.ColorMode != ColorModeSystem || defaults.AccentColor != nil || defaults.FontScale != FontScaleStandard || defaults.RadiusScale != RadiusScaleCompact {
+		t.Fatalf("defaults = %+v", defaults)
+	}
+
+	validAccent := "#1a2B3c"
+	if err := (Preferences{
+		Theme:       ThemeCyberpunk,
+		ColorMode:   ColorModeDark,
+		AccentColor: &validAccent,
+		FontScale:   FontScaleLarge,
+		RadiusScale: RadiusScaleRounded,
+	}).Validate(); err != nil {
+		t.Fatalf("Validate() valid preferences: %v", err)
+	}
+
+	for _, value := range []Preferences{
+		{Theme: "unknown", ColorMode: ColorModeSystem, FontScale: FontScaleStandard, RadiusScale: RadiusScaleCompact},
+		{Theme: ThemeEnterprise, ColorMode: "unknown", FontScale: FontScaleStandard, RadiusScale: RadiusScaleCompact},
+		{Theme: ThemeEnterprise, ColorMode: ColorModeSystem, FontScale: "unknown", RadiusScale: RadiusScaleCompact},
+		{Theme: ThemeEnterprise, ColorMode: ColorModeSystem, FontScale: FontScaleStandard, RadiusScale: "unknown"},
+		{Theme: ThemeEnterprise, ColorMode: ColorModeSystem, AccentColor: stringPointer("#12345"), FontScale: FontScaleStandard, RadiusScale: RadiusScaleCompact},
+		{Theme: ThemeEnterprise, ColorMode: ColorModeSystem, AccentColor: stringPointer("blue"), FontScale: FontScaleStandard, RadiusScale: RadiusScaleCompact},
+	} {
+		if err := value.Validate(); err == nil {
+			t.Errorf("Validate() accepted %+v", value)
+		}
+	}
+}
+
+func stringPointer(value string) *string { return &value }

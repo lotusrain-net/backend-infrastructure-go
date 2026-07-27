@@ -13,14 +13,21 @@ import (
 )
 
 type fakeQueries struct {
-	user        dbgen.User
-	users       []dbgen.User
-	total       int64
-	createErr   error
-	permissions []string
-	setRows     int64
-	assignErr   error
-	grantErr    error
+	user          dbgen.User
+	users         []dbgen.User
+	total         int64
+	createErr     error
+	permissions   []string
+	setRows       int64
+	assignErr     error
+	grantErr      error
+	preference    dbgen.UserPreference
+	preferenceErr error
+	upserted      dbgen.UpsertUserPreferencesParams
+	roles         []dbgen.Role
+	userRoles     []dbgen.Role
+	role          dbgen.Role
+	rolePerms     []dbgen.Permission
 }
 
 func (f *fakeQueries) GetUserByEmail(context.Context, string) (dbgen.User, error) {
@@ -47,16 +54,55 @@ func (f *fakeQueries) CreateUser(context.Context, dbgen.CreateUserParams) (dbgen
 func (f *fakeQueries) SetUserActive(context.Context, dbgen.SetUserActiveParams) (int64, error) {
 	return f.setRows, nil
 }
+func (f *fakeQueries) UpdateUserProfile(context.Context, dbgen.UpdateUserProfileParams) (dbgen.User, error) {
+	return f.user, nil
+}
+func (f *fakeQueries) UpdateUserPassword(context.Context, dbgen.UpdateUserPasswordParams) (int64, error) {
+	return f.setRows, nil
+}
 func (f *fakeQueries) ListUserPermissions(context.Context, pgtype.UUID) ([]string, error) {
 	return f.permissions, nil
 }
-func (f *fakeQueries) ListRoles(context.Context) ([]dbgen.Role, error)             { return nil, nil }
+func (f *fakeQueries) ListRoles(context.Context) ([]dbgen.Role, error)             { return f.roles, nil }
 func (f *fakeQueries) ListPermissions(context.Context) ([]dbgen.Permission, error) { return nil, nil }
 func (f *fakeQueries) AssignUserRole(context.Context, dbgen.AssignUserRoleParams) error {
 	return f.assignErr
 }
 func (f *fakeQueries) GrantRolePermission(context.Context, dbgen.GrantRolePermissionParams) error {
 	return f.grantErr
+}
+func (f *fakeQueries) GetUserPreferences(context.Context, pgtype.UUID) (dbgen.UserPreference, error) {
+	return f.preference, f.preferenceErr
+}
+func (f *fakeQueries) UpsertUserPreferences(_ context.Context, input dbgen.UpsertUserPreferencesParams) error {
+	f.upserted = input
+	return f.preferenceErr
+}
+func (f *fakeQueries) GetRoleByID(context.Context, pgtype.UUID) (dbgen.Role, error) {
+	return f.role, nil
+}
+func (f *fakeQueries) GetSystemAdminRole(context.Context) (dbgen.Role, error)  { return f.role, nil }
+func (f *fakeQueries) LockSystemAdminRole(context.Context) (dbgen.Role, error) { return f.role, nil }
+func (f *fakeQueries) GetPermissionByID(context.Context, pgtype.UUID) (dbgen.Permission, error) {
+	return dbgen.Permission{}, nil
+}
+func (f *fakeQueries) ListRolesForUser(context.Context, pgtype.UUID) ([]dbgen.Role, error) {
+	return f.userRoles, nil
+}
+func (f *fakeQueries) ListRolePermissions(context.Context, pgtype.UUID) ([]dbgen.Permission, error) {
+	return f.rolePerms, nil
+}
+func (f *fakeQueries) CreateRole(context.Context, dbgen.CreateRoleParams) (dbgen.Role, error) {
+	return f.role, nil
+}
+func (f *fakeQueries) UpdateRole(context.Context, dbgen.UpdateRoleParams) (dbgen.Role, error) {
+	return f.role, nil
+}
+func (f *fakeQueries) DeleteRole(context.Context, pgtype.UUID) (int64, error)   { return f.setRows, nil }
+func (f *fakeQueries) DeleteUserRoles(context.Context, pgtype.UUID) error       { return nil }
+func (f *fakeQueries) DeleteRolePermissions(context.Context, pgtype.UUID) error { return nil }
+func (f *fakeQueries) LockActiveSystemAdministratorIDs(context.Context) ([]pgtype.UUID, error) {
+	return nil, nil
 }
 
 func TestStoreMapsMissingMutationTargets(t *testing.T) {
@@ -145,5 +191,71 @@ func TestStoreListsUsersWithTotal(t *testing.T) {
 	}
 	if len(users) != 1 || users[0].ID != "2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a" || total != 7 {
 		t.Fatalf("users=%+v total=%d", users, total)
+	}
+}
+
+func TestStoreMapsNullablePreferencesAndUpsertsByUser(t *testing.T) {
+	var id pgtype.UUID
+	if err := id.Scan("2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a"); err != nil {
+		t.Fatal(err)
+	}
+	queries := &fakeQueries{preference: dbgen.UserPreference{
+		UserID: id, Theme: "enterprise", ColorMode: "system", FontScale: "standard", RadiusScale: "compact",
+	}}
+	store := New(queries)
+	preferences, err := store.GetPreferences(context.Background(), "2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a")
+	if err != nil {
+		t.Fatalf("GetPreferences() error = %v", err)
+	}
+	if preferences.AccentColor != nil || preferences.Theme != iam.ThemeEnterprise || preferences.ColorMode != iam.ColorModeSystem {
+		t.Fatalf("GetPreferences() = %+v", preferences)
+	}
+	accent := "#1A2B3C"
+	if err := store.PutPreferences(context.Background(), "2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a", iam.Preferences{
+		Theme: iam.ThemeCyberpunk, ColorMode: iam.ColorModeDark, AccentColor: &accent, FontScale: iam.FontScaleLarge, RadiusScale: iam.RadiusScaleRounded,
+	}); err != nil {
+		t.Fatalf("PutPreferences() error = %v", err)
+	}
+	if !queries.upserted.AccentColor.Valid || queries.upserted.AccentColor.String != accent || queries.upserted.Theme != "cyberpunk" || queries.upserted.UserID != id {
+		t.Fatalf("upsert input = %+v", queries.upserted)
+	}
+}
+
+func TestStoreMapsSystemRoleDetailsAndUserRoleTags(t *testing.T) {
+	var id pgtype.UUID
+	if err := id.Scan("2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a"); err != nil {
+		t.Fatal(err)
+	}
+	queries := &fakeQueries{
+		users:     []dbgen.User{{ID: id, Email: "a@example.com", Username: "alice", IsActive: true}},
+		total:     1,
+		roles:     []dbgen.Role{{ID: id, Name: "admin", IsSystem: true}},
+		userRoles: []dbgen.Role{{ID: id, Name: "admin", IsSystem: true}},
+		role:      dbgen.Role{ID: id, Name: "admin", IsSystem: true},
+		rolePerms: []dbgen.Permission{{ID: id, Name: "*"}},
+	}
+	store := New(queries)
+	roles, err := store.Roles(context.Background())
+	if err != nil || len(roles) != 1 || !roles[0].IsSystem {
+		t.Fatalf("Roles() = %+v, %v", roles, err)
+	}
+	detail, err := store.Role(context.Background(), "2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a")
+	if err != nil || !detail.IsSystem || len(detail.Permissions) != 1 || detail.Permissions[0].Name != "*" {
+		t.Fatalf("Role() = %+v, %v", detail, err)
+	}
+	users, _, err := store.List(context.Background(), iam.UserFilter{}, 20, 0)
+	if err != nil || len(users) != 1 || len(users[0].Roles) != 1 || !users[0].Roles[0].IsSystem {
+		t.Fatalf("List() = %+v, %v", users, err)
+	}
+}
+
+func TestStorePreservesSystemRolePermissionProtectionForLegacyGrant(t *testing.T) {
+	var id pgtype.UUID
+	if err := id.Scan("2ad8767a-4a89-4f4f-b4b7-b2fd6ce45d5a"); err != nil {
+		t.Fatal(err)
+	}
+	store := New(&fakeQueries{role: dbgen.Role{ID: id, Name: "admin", IsSystem: true}})
+	if err := store.GrantPermission(context.Background(), id.String(), id.String()); !errors.Is(err, iam.ErrSystemRoleProtected) {
+		t.Fatalf("GrantPermission(system role) error = %v", err)
 	}
 }

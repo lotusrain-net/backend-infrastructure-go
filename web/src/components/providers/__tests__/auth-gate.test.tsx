@@ -15,6 +15,10 @@ vi.mock("@/features/auth/api", () => ({
   useCurrentUserQuery: () => useCurrentUserQuery(),
 }));
 
+vi.mock("@/features/preferences/provider", () => ({
+  AppearancePreferencesProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 describe("AuthGate", () => {
   beforeEach(() => {
     replace.mockReset();
