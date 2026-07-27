@@ -9,7 +9,6 @@ const replace = vi.fn();
 const mutateAsync = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/audit",
   useRouter: () => ({ replace }),
 }));
 
@@ -27,7 +26,7 @@ describe("Header", () => {
     mutateAsync.mockResolvedValue(undefined);
   });
 
-  it("shows permission-filtered quick links and keeps account actions available", async () => {
+  it("keeps the header focused on the brand and account actions", async () => {
     const user = userEvent.setup();
     useAuthStore.setState({
       user: {
@@ -42,9 +41,11 @@ describe("Header", () => {
 
     render(<SidebarProvider><Header /></SidebarProvider>);
 
-    expect(screen.getByRole("link", { name: "概览" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "用户" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "审计日志" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "基础设施控制台" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "快捷导航" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "概览" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "用户" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "审计日志" })).toBeNull();
     expect(screen.queryByRole("link", { name: "任务执行" })).toBeNull();
     expect(screen.queryByRole("link", { name: "个人资料" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "打开运营的账户菜单" }));

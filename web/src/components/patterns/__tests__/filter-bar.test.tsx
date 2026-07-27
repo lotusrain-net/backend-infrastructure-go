@@ -56,4 +56,18 @@ describe("FilterBar", () => {
 
     expect(onPageSizeChange).toHaveBeenCalledWith(50);
   });
+
+  it("keeps the page-size select compact instead of stretching across the filter bar", () => {
+    render(
+      <FilterBar
+        keyword=""
+        pageSize={20}
+        onKeywordChange={vi.fn()}
+        onPageSizeChange={vi.fn()}
+        onReset={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "每页数量" }).className).toContain("w-[6.5rem]");
+  });
 });

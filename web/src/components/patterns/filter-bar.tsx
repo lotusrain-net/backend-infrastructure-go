@@ -49,10 +49,10 @@ export function FilterBar({
 
       {children ? <div className="min-w-0 w-full sm:w-auto">{children}</div> : null}
 
-      <div className="grid w-full gap-1.5 sm:w-auto">
+      <div className="grid w-full justify-items-start gap-1.5 sm:w-auto">
         <Label htmlFor="filter-page-size">每页数量</Label>
         <Select value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))}>
-          <SelectTrigger id="filter-page-size" className="w-full sm:w-28">
+          <SelectTrigger id="filter-page-size" className="w-[6.5rem]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

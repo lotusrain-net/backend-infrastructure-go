@@ -26,7 +26,7 @@ export function SelectContent({ className, children, position = "popper", ...pro
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content
         position={position}
-        className={cn("z-[80] max-h-72 min-w-36 overflow-hidden border border-[color:var(--border)] bg-[color:var(--popover)] text-[color:var(--popover-foreground)] shadow-[var(--shadow-popover)] [border-radius:var(--radius-lg)]", className)}
+        className={cn("z-[80] max-h-72 overflow-hidden border border-[color:var(--border)] bg-[color:var(--popover)] text-[color:var(--popover-foreground)] shadow-[var(--shadow-popover)] [border-radius:var(--radius-lg)]", className)}
         {...props}
       >
         <SelectScrollUpButton />

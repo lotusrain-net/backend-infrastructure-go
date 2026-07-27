@@ -206,10 +206,10 @@ export function TaskConsole() {
           onPageSizeChange={(size) => setState({ size })}
           onReset={reset}
         >
-          <div className="grid gap-1.5">
+          <div className="grid justify-items-start gap-1.5">
             <Label htmlFor="task-status-filter" className="text-[length:var(--text-caption)] text-[color:var(--muted-foreground)]">执行状态</Label>
             <Select value={state.status || allTaskStatusesValue} onValueChange={(value) => setState({ status: value === allTaskStatusesValue ? "" : value as TaskQueryState["status"] })}>
-              <SelectTrigger id="task-status-filter"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="task-status-filter" className="w-[6.5rem]"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={allTaskStatusesValue}>全部</SelectItem>
                 <SelectItem value="queued">已排队</SelectItem>

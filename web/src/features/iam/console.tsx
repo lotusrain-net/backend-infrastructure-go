@@ -201,13 +201,13 @@ export function UsersConsole() {
           onPageSizeChange={(size) => setState({ size })}
           onReset={reset}
         >
-          <div className="grid gap-1.5">
+          <div className="grid justify-items-start gap-1.5">
             <Label htmlFor="users-active-filter">账号状态</Label>
             <Select
               value={state.is_active || "all"}
               onValueChange={(value) => setState({ is_active: value === "all" ? "" : value as UserTableState["is_active"] })}
             >
-              <SelectTrigger id="users-active-filter" className="w-full sm:w-28">
+              <SelectTrigger id="users-active-filter" className="w-[6.5rem]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

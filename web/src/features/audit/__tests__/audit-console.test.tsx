@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuditConsole, auditEventsToCSV } from "@/features/audit/audit-console";
 
 const useAuditLogsQuery = vi.fn();
+const advancedFiltersQuery = "page=2&size=10&actor_id=actor-1&action=task.submit&result=failure&resource_type=task_execution&resource_id=execution-1&from=2026-07-25T00%3A00%3A00.000Z&to=2026-07-26T00%3A00%3A00.000Z";
+let searchParams = advancedFiltersQuery;
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/audit",
   useRouter: () => ({ replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams("page=2&size=10&actor_id=actor-1&action=task.submit&result=failure&resource_type=task_execution&resource_id=execution-1&from=2026-07-25T00%3A00%3A00.000Z&to=2026-07-26T00%3A00%3A00.000Z"),
+  useSearchParams: () => new URLSearchParams(searchParams),
 }));
 
 vi.mock("@/components/layout/page-header", () => ({
@@ -26,6 +28,7 @@ vi.mock("@/features/audit/api", () => ({
 describe("AuditConsole", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    searchParams = advancedFiltersQuery;
     useAuditLogsQuery.mockReturnValue({
       data: {
         items: [{
@@ -73,6 +76,32 @@ describe("AuditConsole", () => {
 
     expect(await screen.findByRole("dialog", { name: "审计事件详情" })).toBeTruthy();
     expect(screen.getByText((_, element) => element?.tagName === "PRE" && element.textContent?.includes('"reason": "timeout"') === true)).toBeTruthy();
+  });
+
+  it("collapses supplemental filters without losing their URL-backed values", async () => {
+    const user = userEvent.setup();
+    render(<AuditConsole />);
+
+    const toggle = screen.getByRole("button", { name: "收起筛选" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect((screen.getByLabelText("资源类型") as HTMLInputElement).value).toBe("task_execution");
+
+    await user.click(toggle);
+
+    expect(screen.getByRole("button", { name: "展开筛选" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByLabelText("资源类型")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "展开筛选" }));
+
+    expect((screen.getByLabelText("资源类型") as HTMLInputElement).value).toBe("task_execution");
+  });
+
+  it("keeps supplemental filters collapsed when they have no active value", () => {
+    searchParams = "";
+    render(<AuditConsole />);
+
+    expect(screen.getByRole("button", { name: "展开筛选" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByLabelText("资源类型")).toBeNull();
   });
 
   it("exports only the loaded rows with CSV escaping and spreadsheet formula neutralization", () => {

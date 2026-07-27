@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Download, Eye } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, Eye, RotateCcw } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import type { PageMeta } from "@/components/patterns/data-table";
-import { FilterBar } from "@/components/patterns/filter-bar";
 import { PaginationControls } from "@/components/patterns/pagination-controls";
 import { type TableQueryCodec, useTableQueryState } from "@/components/patterns/use-table-query-state";
 import { PermissionGate } from "@/components/providers/permission-gate";
@@ -109,6 +108,7 @@ export const auditQueryCodec: TableQueryCodec<AuditQueryState> = {
 export function AuditConsole() {
   const { state, setState, reset } = useTableQueryState(auditQueryCodec);
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(() => hasAdvancedAuditFilters(state));
   const query = useAuditLogsQuery({
     page: state.page,
     size: state.size,
@@ -136,6 +136,11 @@ export function AuditConsole() {
     URL.revokeObjectURL(url);
   }
 
+  function resetFilters() {
+    reset();
+    setAdvancedFiltersOpen(false);
+  }
+
   return (
     <PermissionGate permission="audit:read">
       <div className="space-y-6">
@@ -149,44 +154,69 @@ export function AuditConsole() {
             </Button>
           }
         />
-        <FilterBar
-          keyword={state.request_id}
-          keywordLabel="请求 ID"
-          keywordPlaceholder="输入请求 ID"
-          pageSize={state.size}
-          onKeywordChange={(request_id) => setState({ request_id })}
-          onPageSizeChange={(size) => setState({ size })}
-          onReset={reset}
-        >
-          <AuditFilter id="audit-actor-filter" label="主体 ID">
-            <Input id="audit-actor-filter" value={state.actor_id} onChange={(event) => setState({ actor_id: event.target.value })} placeholder="用户 UUID" />
-          </AuditFilter>
-          <AuditFilter id="audit-action-filter" label="操作">
-            <Input id="audit-action-filter" value={state.action} onChange={(event) => setState({ action: event.target.value })} placeholder="例如 task.submit" />
-          </AuditFilter>
-          <AuditFilter id="audit-result-filter" label="结果">
-            <Select value={state.result || allAuditResultsValue} onValueChange={(value) => setState({ result: value === allAuditResultsValue ? "" : value as AuditQueryState["result"] })}>
-              <SelectTrigger id="audit-result-filter"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={allAuditResultsValue}>全部</SelectItem>
-                <SelectItem value="success">成功</SelectItem>
-                <SelectItem value="failure">失败</SelectItem>
-              </SelectContent>
-            </Select>
-          </AuditFilter>
-          <AuditFilter id="audit-resource-type-filter" label="资源类型">
-            <Input id="audit-resource-type-filter" value={state.resource_type} onChange={(event) => setState({ resource_type: event.target.value })} placeholder="例如 task_execution" />
-          </AuditFilter>
-          <AuditFilter id="audit-resource-id-filter" label="资源 ID">
-            <Input id="audit-resource-id-filter" value={state.resource_id} onChange={(event) => setState({ resource_id: event.target.value })} />
-          </AuditFilter>
-          <AuditFilter id="audit-from-filter" label="开始时间">
-            <Input id="audit-from-filter" type="datetime-local" value={toDateTimeLocal(state.from)} onChange={(event) => setState({ from: fromDateTimeLocal(event.target.value) })} />
-          </AuditFilter>
-          <AuditFilter id="audit-to-filter" label="结束时间">
-            <Input id="audit-to-filter" type="datetime-local" value={toDateTimeLocal(state.to)} onChange={(event) => setState({ to: fromDateTimeLocal(event.target.value) })} />
-          </AuditFilter>
-        </FilterBar>
+        <Card className="p-4 shadow-none sm:p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+            <AuditFilter id="audit-request-filter" label="请求 ID" className="w-full md:min-w-[14rem] md:flex-[1.2]">
+              <Input id="audit-request-filter" value={state.request_id} onChange={(event) => setState({ request_id: event.target.value })} placeholder="请求 ID" />
+            </AuditFilter>
+            <AuditFilter id="audit-actor-filter" label="主体 ID" className="w-full md:min-w-[11rem] md:flex-1">
+              <Input id="audit-actor-filter" value={state.actor_id} onChange={(event) => setState({ actor_id: event.target.value })} placeholder="主体 ID" />
+            </AuditFilter>
+            <AuditFilter id="audit-action-filter" label="操作" className="w-full md:min-w-[11rem] md:flex-1">
+              <Input id="audit-action-filter" value={state.action} onChange={(event) => setState({ action: event.target.value })} placeholder="例如 task.submit" />
+            </AuditFilter>
+            <AuditFilter id="audit-result-filter" label="结果" className="w-full md:w-[6.5rem]">
+              <Select value={state.result || allAuditResultsValue} onValueChange={(value) => setState({ result: value === allAuditResultsValue ? "" : value as AuditQueryState["result"] })}>
+                <SelectTrigger id="audit-result-filter" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={allAuditResultsValue}>全部</SelectItem>
+                  <SelectItem value="success">成功</SelectItem>
+                  <SelectItem value="failure">失败</SelectItem>
+                </SelectContent>
+              </Select>
+            </AuditFilter>
+            <AuditFilter id="audit-page-size-filter" label="每页数量" className="w-full md:w-[6.5rem]">
+              <Select value={String(state.size)} onValueChange={(value) => setState({ size: Number(value) })}>
+                <SelectTrigger id="audit-page-size-filter" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size} 条</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </AuditFilter>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full md:w-auto"
+              aria-expanded={advancedFiltersOpen}
+              aria-controls="audit-advanced-filters"
+              onClick={() => setAdvancedFiltersOpen((open) => !open)}
+            >
+              {advancedFiltersOpen ? <ChevronUp aria-hidden="true" className="size-4" /> : <ChevronDown aria-hidden="true" className="size-4" />}
+              {advancedFiltersOpen ? "收起筛选" : "展开筛选"}
+            </Button>
+            <Button type="button" variant="outline" className="w-full md:w-auto" onClick={resetFilters}>
+              <RotateCcw aria-hidden="true" className="size-4" />
+              重置
+            </Button>
+          </div>
+
+          {advancedFiltersOpen ? (
+            <div id="audit-advanced-filters" className="mt-3 grid grid-cols-1 gap-3 border-t border-[color:var(--border)] pt-3 md:grid-cols-2 xl:grid-cols-4">
+              <AuditFilter id="audit-resource-type-filter" label="资源类型">
+                <Input id="audit-resource-type-filter" value={state.resource_type} onChange={(event) => setState({ resource_type: event.target.value })} placeholder="资源类型" />
+              </AuditFilter>
+              <AuditFilter id="audit-resource-id-filter" label="资源 ID">
+                <Input id="audit-resource-id-filter" value={state.resource_id} onChange={(event) => setState({ resource_id: event.target.value })} placeholder="资源 ID" />
+              </AuditFilter>
+              <AuditFilter id="audit-from-filter" label="开始时间">
+                <Input id="audit-from-filter" type="datetime-local" value={toDateTimeLocal(state.from)} onChange={(event) => setState({ from: fromDateTimeLocal(event.target.value) })} />
+              </AuditFilter>
+              <AuditFilter id="audit-to-filter" label="结束时间">
+                <Input id="audit-to-filter" type="datetime-local" value={toDateTimeLocal(state.to)} onChange={(event) => setState({ to: fromDateTimeLocal(event.target.value) })} />
+              </AuditFilter>
+            </div>
+          ) : null}
+        </Card>
         <AuditEventsTable
           rows={events}
           page={data?.meta ?? emptyPage}
@@ -201,13 +231,17 @@ export function AuditConsole() {
   );
 }
 
-function AuditFilter({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+function AuditFilter({ id, label, children, className = "" }: { id: string; label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="grid min-w-[12rem] flex-1 gap-1.5">
-      <Label htmlFor={id} className="text-[length:var(--text-caption)] text-[color:var(--muted-foreground)]">{label}</Label>
+    <div className={`min-w-0 ${className}`}>
+      <Label htmlFor={id} className="sr-only">{label}</Label>
       {children}
     </div>
   );
+}
+
+function hasAdvancedAuditFilters(state: AuditQueryState) {
+  return Boolean(state.resource_type || state.resource_id || state.from || state.to);
 }
 
 function AuditEventsTable({
