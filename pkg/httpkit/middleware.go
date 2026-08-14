@@ -147,6 +147,7 @@ func (writer *recoveryWriter) Flush() {
 	_ = writer.FlushError()
 }
 
+// FlushError commits buffered data and reports errors from the underlying flush.
 func (writer *recoveryWriter) FlushError() error {
 	if err := writer.commit(); err != nil {
 		return err
@@ -154,6 +155,7 @@ func (writer *recoveryWriter) FlushError() error {
 	return http.NewResponseController(writer.destination).Flush()
 }
 
+// Unwrap exposes the underlying writer to http.ResponseController.
 func (writer *recoveryWriter) Unwrap() http.ResponseWriter {
 	return writer.destination
 }

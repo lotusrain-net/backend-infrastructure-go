@@ -103,6 +103,26 @@ func TestRecoveryFlushesStreamingResponse(t *testing.T) {
 	}
 }
 
+func TestRecoveryExposesWorkingHTTPFlusher(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	visibleBeforeReturn := ""
+	handler := httpkit.Recovery(slog.Default())(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("recovery writer does not implement http.Flusher")
+		}
+		_, _ = writer.Write([]byte("data: direct\n\n"))
+		flusher.Flush()
+		visibleBeforeReturn = recorder.Body.String()
+	}))
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stream", nil))
+
+	if visibleBeforeReturn != "data: direct\n\n" || !recorder.Flushed {
+		t.Fatalf("visible body = %q, flushed = %v", visibleBeforeReturn, recorder.Flushed)
+	}
+}
+
 func TestRecoveryStreamsResponsesLargerThanItsBoundedBuffer(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	visibleBeforeReturn := 0
