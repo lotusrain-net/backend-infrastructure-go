@@ -3,7 +3,7 @@
 ARG IMAGE_REGISTRY=public.ecr.aws/docker
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
-FROM ${IMAGE_REGISTRY}/library/golang:1.26.5 AS build
+FROM ${IMAGE_REGISTRY}/library/golang:1.26.6 AS build
 
 ARG GOPROXY
 ARG GOSUMDB

@@ -20,12 +20,15 @@ describe("canonical pattern defaults", () => {
   it("supports a non-destructive confirmation action and keeps the dialog open after a failed async action", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
-    const onConfirm = vi.fn().mockRejectedValue(new Error("network unavailable"));
+    const error = new Error("network unavailable");
+    const onConfirm = vi.fn().mockRejectedValue(error);
+    const onConfirmError = vi.fn();
     render(
       <ConfirmationDialog
         open
         onOpenChange={onOpenChange}
         onConfirm={onConfirm}
+        onConfirmError={onConfirmError}
         confirmLabel="启用"
         confirmVariant="default"
       />,
@@ -38,6 +41,7 @@ describe("canonical pattern defaults", () => {
     await user.click(confirm);
 
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onConfirmError).toHaveBeenCalledWith(error));
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(screen.getByRole("alertdialog")).toBeTruthy();
   });

@@ -1,11 +1,11 @@
 package app
 
 import (
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/shared/pagination"
-	"backend-infrastructure-go/internal/shared/requestcontext"
 	"context"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	requestcontext "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type auditPreserver interface {
@@ -110,7 +110,7 @@ func (a *auditedIAM) record(ctx context.Context, action, resourceType, resourceI
 	}
 	metadata := audit.RequestMetadataFromContext(ctx)
 	return a.audit.Preserve(ctx, audit.NewEvent{
-		RequestID: requestcontext.RequestID(ctx), ActorID: actorID, Action: action, Result: result,
+		RequestID: requestcontext.RequestIDFromContext(ctx), ActorID: actorID, Action: action, Result: result,
 		ResourceType: resourceType, ResourceID: resourceID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent,
 	}, primary)
 }

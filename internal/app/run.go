@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"backend-infrastructure-go/internal/bootstrap"
-	"backend-infrastructure-go/internal/config"
-	platformlogging "backend-infrastructure-go/internal/platform/logging"
+	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	bootstrap "github.com/jyysy/backend-infrastructure-go/pkg/lifecycle"
+	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
 )
 
 func Execute(ctx context.Context, output io.Writer, role string) error {

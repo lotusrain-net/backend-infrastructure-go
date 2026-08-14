@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/httpserver"
-	"backend-infrastructure-go/internal/shared/apperror"
-	"backend-infrastructure-go/internal/shared/pagination"
-	"backend-infrastructure-go/internal/shared/response"
 	"github.com/go-chi/chi/v5"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	apperror "github.com/jyysy/backend-infrastructure-go/pkg/apikit"
+	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 const (
@@ -159,7 +158,7 @@ func (h handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	setNoStore(w)
 	h.clearAuthCookies(w)
-	response.Write(w, http.StatusOK, map[string]bool{"logged_out": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"logged_out": true})
 }
 
 func (h handler) me(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +167,7 @@ func (h handler) me(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, user)
+	apperror.Write(w, http.StatusOK, user)
 }
 
 func (h handler) preferences(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +176,7 @@ func (h handler) preferences(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, preferences)
+	apperror.Write(w, http.StatusOK, preferences)
 }
 
 func (h handler) putPreferences(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +188,7 @@ func (h handler) putPreferences(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, preferences)
+	apperror.Write(w, http.StatusOK, preferences)
 }
 
 func (h handler) users(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +196,7 @@ func (h handler) users(w http.ResponseWriter, r *http.Request) {
 	if value := r.URL.Query().Get("is_active"); value != "" {
 		active, err := strconv.ParseBool(value)
 		if err != nil {
-			response.WriteError(w, apperror.Validation(map[string]string{"is_active": "must be true or false"}))
+			apperror.WriteError(w, apperror.Validation(map[string]string{"is_active": "must be true or false"}))
 			return
 		}
 		filter.Active = &active
@@ -211,7 +210,7 @@ func (h handler) users(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, items)
+	apperror.Write(w, http.StatusOK, items)
 }
 
 func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
@@ -224,7 +223,7 @@ func (h handler) createUser(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusCreated, user)
+	apperror.Write(w, http.StatusCreated, user)
 }
 
 func (h handler) updateUser(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +236,7 @@ func (h handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, user)
+	apperror.Write(w, http.StatusOK, user)
 }
 
 func (h handler) resetUserPassword(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +250,7 @@ func (h handler) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"reset": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"reset": true})
 }
 
 func (h handler) setUserActive(w http.ResponseWriter, r *http.Request) {
@@ -262,14 +261,14 @@ func (h handler) setUserActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Active == nil {
-		response.WriteError(w, apperror.Validation(map[string]string{"is_active": "is required"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"is_active": "is required"}))
 		return
 	}
 	if err := h.app.SetUserActive(r.Context(), chi.URLParam(r, "userID"), *in.Active); err != nil {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"is_active": *in.Active})
+	apperror.Write(w, http.StatusOK, map[string]bool{"is_active": *in.Active})
 }
 
 func (h handler) roles(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +277,7 @@ func (h handler) roles(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, items)
+	apperror.Write(w, http.StatusOK, items)
 }
 
 func (h handler) role(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +286,7 @@ func (h handler) role(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, role)
+	apperror.Write(w, http.StatusOK, role)
 }
 
 func (h handler) createRole(w http.ResponseWriter, r *http.Request) {
@@ -300,7 +299,7 @@ func (h handler) createRole(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusCreated, role)
+	apperror.Write(w, http.StatusCreated, role)
 }
 
 func (h handler) updateRole(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +312,7 @@ func (h handler) updateRole(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, role)
+	apperror.Write(w, http.StatusOK, role)
 }
 
 func (h handler) deleteRole(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +320,7 @@ func (h handler) deleteRole(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"deleted": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 func (h handler) permissions(w http.ResponseWriter, r *http.Request) {
@@ -330,7 +329,7 @@ func (h handler) permissions(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, items)
+	apperror.Write(w, http.StatusOK, items)
 }
 
 func (h handler) assignRole(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +337,7 @@ func (h handler) assignRole(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"assigned": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"assigned": true})
 }
 
 func (h handler) replaceUserRoles(w http.ResponseWriter, r *http.Request) {
@@ -349,14 +348,14 @@ func (h handler) replaceUserRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if input.RoleIDs == nil {
-		response.WriteError(w, apperror.Validation(map[string]string{"role_ids": "is required"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"role_ids": "is required"}))
 		return
 	}
 	if err := h.app.ReplaceUserRoles(r.Context(), chi.URLParam(r, "userID"), *input.RoleIDs); err != nil {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"replaced": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"replaced": true})
 }
 
 func (h handler) grantPermission(w http.ResponseWriter, r *http.Request) {
@@ -364,7 +363,7 @@ func (h handler) grantPermission(w http.ResponseWriter, r *http.Request) {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"granted": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"granted": true})
 }
 
 func (h handler) replaceRolePermissions(w http.ResponseWriter, r *http.Request) {
@@ -375,14 +374,14 @@ func (h handler) replaceRolePermissions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if input.PermissionIDs == nil {
-		response.WriteError(w, apperror.Validation(map[string]string{"permission_ids": "is required"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"permission_ids": "is required"}))
 		return
 	}
 	if err := h.app.ReplaceRolePermissions(r.Context(), chi.URLParam(r, "roleID"), *input.PermissionIDs); err != nil {
 		writeIAMError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, map[string]bool{"replaced": true})
+	apperror.Write(w, http.StatusOK, map[string]bool{"replaced": true})
 }
 
 func (h handler) setRefreshCookie(w http.ResponseWriter, value string) {
@@ -402,7 +401,7 @@ func (h handler) writeTokenPair(w http.ResponseWriter, pair iam.TokenPair) {
 	setNoStore(w)
 	h.setAccessCookie(w, pair.AccessToken, pair.ExpiresIn)
 	h.setRefreshCookie(w, pair.RefreshToken)
-	response.Write(w, http.StatusOK, pair)
+	apperror.Write(w, http.StatusOK, pair)
 }
 
 func setNoStore(w http.ResponseWriter) {
@@ -426,7 +425,7 @@ func refreshToken(w http.ResponseWriter, r *http.Request) (string, error) {
 
 func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 	if err := httpserver.DecodeJSON(w, r, maxJSONBodyBytes, value); err != nil {
-		response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
 		return false
 	}
 	return true
@@ -443,16 +442,16 @@ func queryInt(r *http.Request, name string, fallback int) int {
 func writeIAMError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, iam.ErrInvalidCredentials), errors.Is(err, iam.ErrInvalidRefreshToken):
-		response.WriteError(w, apperror.New(401, "invalid credentials", 401, err))
+		apperror.WriteError(w, apperror.New(401, "invalid credentials", 401, err))
 	case errors.Is(err, iam.ErrInactiveUser), errors.Is(err, iam.ErrPermissionDenied):
-		response.WriteError(w, apperror.New(403, err.Error(), 403, err))
+		apperror.WriteError(w, apperror.New(403, err.Error(), 403, err))
 	case errors.Is(err, iam.ErrDuplicateIdentity), errors.Is(err, iam.ErrCannotDeactivateSelf), errors.Is(err, iam.ErrLastActiveAdministrator), errors.Is(err, iam.ErrSystemRoleProtected):
-		response.WriteError(w, apperror.New(409, err.Error(), 409, err))
+		apperror.WriteError(w, apperror.New(409, err.Error(), 409, err))
 	case errors.Is(err, iam.ErrInvalidUserInput):
-		response.WriteError(w, apperror.Validation(map[string]string{"user": err.Error()}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"user": err.Error()}))
 	case errors.Is(err, iam.ErrNotFound):
-		response.WriteError(w, apperror.NotFound("resource"))
+		apperror.WriteError(w, apperror.NotFound("resource"))
 	default:
-		response.WriteError(w, err)
+		apperror.WriteError(w, err)
 	}
 }

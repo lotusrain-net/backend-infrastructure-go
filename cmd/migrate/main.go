@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"backend-infrastructure-go/internal/app"
-	"backend-infrastructure-go/internal/bootstrap"
-	"backend-infrastructure-go/internal/config"
-	platformlogging "backend-infrastructure-go/internal/platform/logging"
+	"github.com/jyysy/backend-infrastructure-go/internal/app"
+	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	bootstrap "github.com/jyysy/backend-infrastructure-go/pkg/lifecycle"
+	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
 )
 
 func main() {

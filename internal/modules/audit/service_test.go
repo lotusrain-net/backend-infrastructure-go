@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
 )
 
 func TestServiceRecordsValidEvent(t *testing.T) {

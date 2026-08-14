@@ -1,5 +1,1 @@
-import { cn } from "@/lib/utils";
-
-export function Skeleton({ className }: { className?: string }) {
-  return <span aria-hidden="true" className={cn("block animate-pulse bg-[color:var(--muted)] [border-radius:var(--radius-sm)]", className)} />;
-}
+export { Skeleton } from "@purplevoid/backend-infrastructure-web/ui";

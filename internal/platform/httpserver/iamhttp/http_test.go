@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/shared/pagination"
 	"github.com/go-chi/chi/v5"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type fakeApplication struct {

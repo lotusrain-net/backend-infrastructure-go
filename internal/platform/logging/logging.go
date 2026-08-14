@@ -1,28 +1,15 @@
+// Package logging is a compatibility adapter for the public logging package.
 package logging
 
 import (
-	"fmt"
 	"io"
 	"log/slog"
-	"strings"
+
+	publiclogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
 )
 
 func New(output io.Writer, level slog.Level, service string) *slog.Logger {
-	handler := slog.NewJSONHandler(output, &slog.HandlerOptions{Level: level})
-	return slog.New(handler).With("service", service)
+	return publiclogging.New(output, level, service)
 }
 
-func ParseLevel(value string) (slog.Level, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "debug":
-		return slog.LevelDebug, nil
-	case "info":
-		return slog.LevelInfo, nil
-	case "warn":
-		return slog.LevelWarn, nil
-	case "error":
-		return slog.LevelError, nil
-	default:
-		return 0, fmt.Errorf("unknown log level %q", value)
-	}
-}
+func ParseLevel(value string) (slog.Level, error) { return publiclogging.ParseLevel(value) }

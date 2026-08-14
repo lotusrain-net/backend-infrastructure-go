@@ -1,0 +1,306 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (only v0.1.0 is supported)
+        required: true
+        default: v0.1.0
+        type: choice
+        options:
+          - v0.1.0
+
+concurrency:
+  group: release-v0.1.0
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Validate release target
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = "v0.1.0"
+          test "$GITHUB_REF" = "refs/heads/main"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: true
+      - name: Verify Go release gates
+        env:
+          GOWORK: off
+        run: |
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          go build ./...
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Verify Go module boundaries
+        shell: pwsh
+        env:
+          GOWORK: off
+        run: ./scripts/verify-go-module-boundaries.ps1
+      - name: Verify external Go consumer
+        working-directory: tests/consumer
+        env:
+          GOWORK: off
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Verify npm package and consumers
+        working-directory: web
+        env:
+          API_PROXY_TARGET: http://127.0.0.1:8080
+        run: |
+          test "$(node -p 'require("./packages/backend-infrastructure-web/package.json").version')" = "0.1.0"
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+          npm run check:package
+          test "$(node -p 'require("./packages/backend-infrastructure-web/package.json").repository.url')" = "https://github.com/jyysy/backend-infrastructure-go.git"
+          consumer_tmp="$PWD/.release-consumer-tmp"
+          mkdir -p "$consumer_tmp"
+          TMPDIR="$consumer_tmp" npm run test:package-consumers
+          mapfile -t tarballs < <(find "$consumer_tmp" -type f -name 'purplevoid-backend-infrastructure-web-0.1.0.tgz' -print)
+          test "${#tarballs[@]}" -eq 1
+          mkdir -p release-artifacts
+          mv "${tarballs[0]}" release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
+          rm -rf "$consumer_tmp"
+      - name: Finalize verified npm artifact
+        working-directory: web
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -f release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
+          printf '%s\n' "$RELEASE_SHA" > release-artifacts/SOURCE_COMMIT
+          (cd release-artifacts && sha256sum purplevoid-backend-infrastructure-web-0.1.0.tgz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-infrastructure-web-${{ github.sha }}
+          path: web/release-artifacts
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  tag:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Create or verify immutable annotated tag
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = "v0.1.0"
+          test "$GITHUB_REF" = "refs/heads/main"
+
+          verify_remote_tag() {
+            local tag_object peeled
+            tag_object="$(git ls-remote --refs origin "refs/tags/$VERSION" | awk 'NR == 1 { print $1 }')"
+            peeled="$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')"
+            test -n "$tag_object"
+            test -n "$peeled"
+            test "$tag_object" != "$peeled"
+            test "$peeled" = "$RELEASE_SHA"
+          }
+
+          if git ls-remote --exit-code --refs origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            git fetch --force origin "+refs/tags/$VERSION:refs/tags/$VERSION"
+            test "$(git cat-file -t "refs/tags/$VERSION")" = "tag"
+            test "$(git rev-parse "refs/tags/$VERSION^{}")" = "$RELEASE_SHA"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag --annotate "$VERSION" "$RELEASE_SHA" --message "Release $VERSION"
+            test "$(git cat-file -t "refs/tags/$VERSION")" = "tag"
+            test "$(git rev-parse "refs/tags/$VERSION^{}")" = "$RELEASE_SHA"
+            if ! git push origin "refs/tags/$VERSION"; then
+              # A concurrent run may have won the race. Accept it only when
+              # the remote tag is still an annotated tag for this commit.
+              git fetch --force origin "+refs/tags/$VERSION:refs/tags/$VERSION"
+              test "$(git cat-file -t "refs/tags/$VERSION")" = "tag"
+              test "$(git rev-parse "refs/tags/$VERSION^{}")" = "$RELEASE_SHA"
+            fi
+          fi
+
+          verify_remote_tag
+
+  bootstrap:
+    needs: tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-infrastructure-web-${{ github.sha }}
+          path: release-artifacts
+      - name: Detect one-time npm bootstrap requirement
+        id: npm
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(cat release-artifacts/SOURCE_COMMIT)" = "$RELEASE_SHA"
+          (cd release-artifacts && sha256sum --check SHA256SUMS)
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://registry.npmjs.org/@purplevoid%2Fbackend-infrastructure-web/0.1.0")"
+          case "$status" in
+            200) printf 'required=false\n' >> "$GITHUB_OUTPUT" ;;
+            404) printf 'required=true\n' >> "$GITHUB_OUTPUT" ;;
+            *) printf 'unexpected npm registry status: %s\n' "$status" >&2; exit 1 ;;
+          esac
+      - name: Approve first npm publication
+        if: steps.npm.outputs.required == 'true'
+        env:
+          PACKAGE: '@purplevoid/backend-infrastructure-web'
+          TARBALL: purplevoid-backend-infrastructure-web-0.1.0.tgz
+        working-directory: release-artifacts
+        run: |
+          set -euo pipefail
+          echo "::error::First publication requires one interactive owner publish; no npm token is accepted by this workflow."
+          echo "::error::Download this run's artifact, verify SHA256SUMS, then run: npm publish $TARBALL --access public"
+          echo "::error::Afterward configure $PACKAGE Trusted Publishing for release.yml and environment release, then rerun this workflow."
+          exit 1
+
+  publish:
+    needs: [tag, bootstrap]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-infrastructure-web-${{ github.sha }}
+          path: release-artifacts
+      - name: Verify release tag and artifact provenance
+        env:
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = "v0.1.0"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(cat release-artifacts/SOURCE_COMMIT)" = "$RELEASE_SHA"
+          (cd release-artifacts && sha256sum --check SHA256SUMS)
+          tag_object="$(git ls-remote --refs origin "refs/tags/$VERSION" | awk 'NR == 1 { print $1 }')"
+          peeled="$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')"
+          test -n "$tag_object"
+          test -n "$peeled"
+          test "$tag_object" != "$peeled"
+          test "$peeled" = "$RELEASE_SHA"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: false
+      - name: Verify released Go module
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = "v0.1.0"
+          verifier="$(mktemp -d)"
+          trap 'rm -rf "$verifier"' EXIT
+          cd "$verifier"
+          go mod init example.com/release-verifier >/dev/null
+          cp "$GITHUB_WORKSPACE/tests/consumer/consumer.go" .
+          # checkout persists the read-only workflow credential in the local
+          # Git config; expose that config to VCS commands launched by Go.
+          export GIT_CONFIG_NOSYSTEM=true
+          export GIT_CONFIG_GLOBAL="$GITHUB_WORKSPACE/.git/config"
+          export GOWORK=off
+          export GOPRIVATE='github.com/jyysy/*'
+          export GONOSUMDB='github.com/jyysy/*'
+          export GOPROXY=direct
+          export GOSUMDB=off
+          export GOTOOLCHAIN=local
+          go get "github.com/jyysy/backend-infrastructure-go@$VERSION"
+          go mod tidy
+          go test ./...
+          resolved="$(go list -m -f '{{.Version}}' github.com/jyysy/backend-infrastructure-go)"
+          test "$resolved" = "$VERSION"
+      - uses: actions/setup-node@v4
+        with:
+          # npm trusted publishing requires npm 11.5.1+ and Node 22.14+.
+          node-version: "22.14.0"
+          registry-url: https://registry.npmjs.org
+      - name: Prepare npm trusted publishing client
+        run: |
+          set -euo pipefail
+          npm install --global npm@11.5.1
+          test "$(npm --version)" = "11.5.1"
+      - name: Publish verified npm tarball with OIDC
+        env:
+          PACKAGE: '@purplevoid/backend-infrastructure-web'
+          VERSION: '0.1.0'
+          TARBALL: release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
+        run: |
+          set -euo pipefail
+          expected_integrity="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | openssl base64 -A)"
+          metadata="$(curl --fail --silent --show-error "https://registry.npmjs.org/@purplevoid%2Fbackend-infrastructure-web/$VERSION" 2>/dev/null || true)"
+          published_integrity=""
+          if [ -n "$metadata" ]; then
+            published_integrity="$(node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(0, "utf8"))["dist"]?.integrity; if (typeof value !== "string" || value.length === 0) process.exit(1); process.stdout.write(value)' <<<"$metadata")"
+          fi
+          if [ -n "$published_integrity" ]; then
+            # A retry is safe only if npm already contains this exact tarball.
+            test "$published_integrity" = "$expected_integrity"
+          else
+            # Trusted publishing generates provenance automatically when the
+            # GitHub source repository is public. npm omits it for private repos.
+            npm publish "$TARBALL" --access public
+          fi
+      - name: Verify published artifacts and create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          PACKAGE: '@purplevoid/backend-infrastructure-web'
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')" = "$GITHUB_SHA"
+          test "$(npm view "$PACKAGE@0.1.0" version)" = "0.1.0"
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            test "$(gh release view "$VERSION" --json tagName --jq .tagName)" = "$VERSION"
+          else
+            gh release create "$VERSION" --verify-tag --title "$VERSION" --generate-notes
+          fi

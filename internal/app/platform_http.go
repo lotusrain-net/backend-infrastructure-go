@@ -9,16 +9,15 @@ import (
 	"strconv"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/iam"
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	"backend-infrastructure-go/internal/shared/apperror"
-	"backend-infrastructure-go/internal/shared/pagination"
-	"backend-infrastructure-go/internal/shared/requestcontext"
-	"backend-infrastructure-go/internal/shared/response"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	apperror "github.com/jyysy/backend-infrastructure-go/pkg/apikit"
+	requestcontext "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type auditLister interface {
@@ -76,10 +75,10 @@ func (h platformHandler) auditLogs(w http.ResponseWriter, r *http.Request) {
 		From: queryTime(query.Get("from")), To: queryTime(query.Get("to")),
 	}, Page: page, Size: size})
 	if err != nil {
-		response.WriteError(w, err)
+		apperror.WriteError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, result)
+	apperror.Write(w, http.StatusOK, result)
 }
 func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -95,11 +94,11 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&in); err != nil {
-		response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
 		return
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
+		apperror.WriteError(w, apperror.Validation(map[string]string{"body": "invalid JSON body"}))
 		return
 	}
 	validationErrors := make(map[string]string)
@@ -122,7 +121,7 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	uniqueForSeconds := optionalInt(in.UniqueForSeconds, 0, 0, int(taskmodule.MaxSubmissionUniqueFor/time.Second), "unique_for_seconds", validationErrors)
 	processAfterSeconds := optionalInt(in.ProcessAfterSeconds, 0, 0, int(taskmodule.MaxSubmissionProcessAfter/time.Second), "process_after_seconds", validationErrors)
 	if len(validationErrors) > 0 {
-		response.WriteError(w, apperror.Validation(validationErrors))
+		apperror.WriteError(w, apperror.Validation(validationErrors))
 		return
 	}
 	execution, err := h.deps.Tasks.Submit(r.Context(), taskmodule.Submission{
@@ -140,21 +139,21 @@ func (h platformHandler) submitTask(w http.ResponseWriter, r *http.Request) {
 	h.audit(r.Context(), "task.submit", "task_execution", execution.ID, err)
 	if err != nil {
 		if errors.Is(err, taskmodule.ErrDefinitionNotFound) {
-			response.WriteError(w, apperror.NotFound("task definition"))
+			apperror.WriteError(w, apperror.NotFound("task definition"))
 			return
 		}
 		if errors.Is(err, taskmodule.ErrDuplicateSubmission) {
-			response.WriteError(w, apperror.New(http.StatusConflict, "duplicate task submission", http.StatusConflict, err))
+			apperror.WriteError(w, apperror.New(http.StatusConflict, "duplicate task submission", http.StatusConflict, err))
 			return
 		}
 		if errors.Is(err, taskmodule.ErrInvalidSubmission) {
-			response.WriteError(w, apperror.Validation(map[string]string{"body": "invalid task submission"}))
+			apperror.WriteError(w, apperror.Validation(map[string]string{"body": "invalid task submission"}))
 			return
 		}
-		response.WriteError(w, err)
+		apperror.WriteError(w, err)
 		return
 	}
-	response.Write(w, http.StatusAccepted, execution)
+	apperror.Write(w, http.StatusAccepted, execution)
 }
 
 func (h platformHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
@@ -166,17 +165,17 @@ func (h platformHandler) listExecutions(w http.ResponseWriter, r *http.Request) 
 	if value := r.URL.Query().Get("status"); value != "" {
 		status, ok := taskmodule.ParseStatus(value)
 		if !ok {
-			response.WriteError(w, apperror.Validation(map[string]string{"status": "must be one of queued, running, succeeded, failed, cancelled"}))
+			apperror.WriteError(w, apperror.Validation(map[string]string{"status": "must be one of queued, running, succeeded, failed, cancelled"}))
 			return
 		}
 		query.Filter.Status = status
 	}
 	items, err := h.deps.Executions.ListExecutions(r.Context(), query)
 	if err != nil {
-		response.WriteError(w, err)
+		apperror.WriteError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, items)
+	apperror.Write(w, http.StatusOK, items)
 }
 
 func optionalString(raw json.RawMessage, field string, validationErrors map[string]string) string {
@@ -211,13 +210,13 @@ func (h platformHandler) getExecution(w http.ResponseWriter, r *http.Request) {
 	execution, err := h.deps.Executions.GetExecution(r.Context(), chi.URLParam(r, "executionID"))
 	if err != nil {
 		if errors.Is(err, taskmodule.ErrExecutionNotFound) {
-			response.WriteError(w, apperror.NotFound("task execution"))
+			apperror.WriteError(w, apperror.NotFound("task execution"))
 			return
 		}
-		response.WriteError(w, err)
+		apperror.WriteError(w, err)
 		return
 	}
-	response.Write(w, http.StatusOK, execution)
+	apperror.Write(w, http.StatusOK, execution)
 }
 
 func (h platformHandler) listTaskTypes(w http.ResponseWriter, _ *http.Request) {
@@ -228,7 +227,7 @@ func (h platformHandler) listTaskTypes(w http.ResponseWriter, _ *http.Request) {
 	for _, taskType := range h.deps.TaskCatalog.Types() {
 		items = append(items, taskTypeResponse{TaskType: taskType})
 	}
-	response.Write(w, http.StatusOK, items)
+	apperror.Write(w, http.StatusOK, items)
 }
 func (h platformHandler) audit(ctx context.Context, action, resourceType, resourceID string, primary error) {
 	if h.deps.Recorder == nil {
@@ -244,7 +243,7 @@ func (h platformHandler) audit(ctx context.Context, action, resourceType, resour
 	}
 	metadata := audit.RequestMetadataFromContext(ctx)
 	_ = h.deps.Recorder.Preserve(ctx, audit.NewEvent{
-		RequestID: requestcontext.RequestID(ctx), ActorID: actorID, Action: action, Result: result,
+		RequestID: requestcontext.RequestIDFromContext(ctx), ActorID: actorID, Action: action, Result: result,
 		ResourceType: resourceType, ResourceID: resourceID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent,
 	}, primary)
 }

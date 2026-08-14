@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"backend-infrastructure-go/internal/shared/apperror"
+	"github.com/jyysy/backend-infrastructure-go/internal/shared/apperror"
 )
 
 func TestErrorPreservesStableCodeStatusAndCause(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/platform/database/auditstore"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/auditstore"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
 )
 
 func TestRepositoryCreatesAuditLogThroughDBGen(t *testing.T) {

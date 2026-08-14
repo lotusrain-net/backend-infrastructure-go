@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"backend-infrastructure-go/internal/platform/httpserver"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver"
 )
 
 func TestNewRouterRequiresReadiness(t *testing.T) {

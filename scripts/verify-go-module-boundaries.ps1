@@ -7,7 +7,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $webPackages = @($packages | Where-Object {
-    $_ -eq "backend-infrastructure-go/web" -or $_ -like "backend-infrastructure-go/web/*"
+    $_ -eq "github.com/jyysy/backend-infrastructure-go/web" -or $_ -like "github.com/jyysy/backend-infrastructure-go/web/*"
 })
 if ($webPackages.Count -gt 0) {
     Write-Error "Root Go module must not discover web packages: $($webPackages -join ', ')"

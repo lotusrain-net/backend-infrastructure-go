@@ -14,7 +14,7 @@ import {
 import {
   DEFAULT_ACCOUNT_PREFERENCES,
   normalizeAccentColor,
-} from "@/features/preferences/appearance";
+} from "@purplevoid/backend-infrastructure-web/theme";
 import { useAppearancePreferences } from "@/features/preferences/provider";
 import type { ColorMode, FontScale, RadiusScale, ThemeName } from "@/types/api";
 

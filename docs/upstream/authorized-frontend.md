@@ -2,6 +2,7 @@
 
 - Upstream repository: `xuanli520/douyin_dashboard_frontend`
 - Authorized branch and revision: `main@3de3320`
+- Authorization status: the upstream owner confirmed selective reuse, npm redistribution, and Apache-2.0 relicensing of the adapted generic source categories listed below
 - Import policy: selective reuse only; generic infrastructure patterns may be adapted, while Douyin business flows and branded assets are excluded
 
 ## Approved Source Categories

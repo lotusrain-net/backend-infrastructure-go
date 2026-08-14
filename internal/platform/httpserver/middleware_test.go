@@ -14,13 +14,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"backend-infrastructure-go/internal/platform/httpserver"
-	"backend-infrastructure-go/internal/shared/requestcontext"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver"
+	requestcontext "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
 )
 
 func TestRequestIDAcceptsValidIncomingID(t *testing.T) {
 	handler := httpserver.RequestID(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := requestcontext.RequestID(request.Context()); got != "client-request-42" {
+		if got := requestcontext.RequestIDFromContext(request.Context()); got != "client-request-42" {
 			t.Fatalf("context request id = %q", got)
 		}
 		writer.WriteHeader(http.StatusNoContent)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"backend-infrastructure-go/internal/shared/requestcontext"
+	"github.com/jyysy/backend-infrastructure-go/internal/shared/requestcontext"
 )
 
 func TestRequestIDRoundTrip(t *testing.T) {

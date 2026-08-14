@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/config"
-	"backend-infrastructure-go/internal/modules/audit"
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	platformlogging "backend-infrastructure-go/internal/platform/logging"
-	"backend-infrastructure-go/internal/platform/observability"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
+	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/observability"
+	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
 	"github.com/redis/go-redis/v9"
 )
 

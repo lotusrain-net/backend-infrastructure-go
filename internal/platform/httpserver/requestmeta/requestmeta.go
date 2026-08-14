@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"strings"
 
-	"backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
 )
 
 type Config struct {

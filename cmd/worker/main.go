@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"backend-infrastructure-go/internal/app"
+	"github.com/jyysy/backend-infrastructure-go/internal/app"
 )
 
 func main() {

@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"backend-infrastructure-go/internal/platform/observability"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/observability"
 )
 
 func TestMetricsExposeHTTPDependencyAuditAndTaskMeasurements(t *testing.T) {

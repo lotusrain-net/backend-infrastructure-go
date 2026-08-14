@@ -4,11 +4,12 @@ import {
   DEFAULT_ACCOUNT_PREFERENCES,
   deriveThemeTokens,
   parseAppearancePreferences,
-  type ResolvedColorMode,
-} from "@/features/preferences/appearance";
-import type { AccountPreferences, ColorMode } from "@/types/api";
+  resolveColorMode,
+  themeTokenProperties,
+  type AccountPreferences,
+} from "@purplevoid/backend-infrastructure-web/theme";
 
-export { createAppearancePreferences } from "@/features/preferences/appearance";
+export { createAppearancePreferences } from "@purplevoid/backend-infrastructure-web/theme";
 
 const CACHE_PREFIX = "backend-infra-appearance";
 export type PreferenceSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";
@@ -41,25 +42,16 @@ const defaultState = {
   isPreviewing: false,
 };
 
-function resolveColorMode(colorMode: ColorMode): ResolvedColorMode {
-  if (colorMode !== "system") {
-    return colorMode;
-  }
-
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "light";
-  }
-
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 function applyPreferences(preferences: AccountPreferences) {
   if (typeof document === "undefined") {
     return;
   }
 
   const root = document.documentElement;
-  const resolvedColorMode = resolveColorMode(preferences.color_mode);
+  const prefersDark = typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolvedColorMode = resolveColorMode(preferences.color_mode, prefersDark);
   root.dataset.theme = preferences.theme;
   root.dataset.colorMode = resolvedColorMode;
   root.dataset.fontScale = preferences.font_scale;
@@ -81,73 +73,6 @@ function applyPreferences(preferences: AccountPreferences) {
   for (const property of seededThemeProperties) {
     root.style.removeProperty(property);
   }
-}
-
-/**
- * Canonical semantic variables are set first. Legacy aliases are written from
- * the same source so existing screens keep following the one token palette
- * while their UI primitives are migrated.
- */
-function themeTokenProperties(tokens: ReturnType<typeof deriveThemeTokens>): Record<string, string> {
-  return {
-    "--background": tokens.canvas,
-    "--foreground": tokens.foreground,
-    "--card": tokens.card,
-    "--card-foreground": tokens.cardForeground,
-    "--popover": tokens.popover,
-    "--popover-foreground": tokens.popoverForeground,
-    "--primary": tokens.primary,
-    "--primary-foreground": tokens.primaryForeground,
-    "--primary-hover": tokens.primaryHover,
-    "--primary-subtle": tokens.primarySubtle,
-    "--primary-subtle-foreground": tokens.primary,
-    "--secondary": tokens.secondary,
-    "--secondary-foreground": tokens.secondaryForeground,
-    "--muted": tokens.muted,
-    "--muted-foreground": tokens.mutedForeground,
-    "--accent": tokens.accent,
-    "--accent-foreground": tokens.accentForeground,
-    "--border": tokens.border,
-    "--input": tokens.input,
-    "--input-background": tokens.inputBackground,
-    "--ring": tokens.focus,
-    "--sidebar": tokens.sidebar,
-    "--sidebar-foreground": tokens.sidebarForeground,
-    "--sidebar-muted": tokens.mutedForeground,
-    "--sidebar-primary": tokens.sidebarPrimary,
-    "--sidebar-primary-foreground": tokens.sidebarPrimaryForeground,
-    "--sidebar-accent": tokens.sidebarAccent,
-    "--sidebar-accent-foreground": tokens.sidebarAccentForeground,
-    "--sidebar-border": tokens.sidebarBorder,
-    "--sidebar-ring": tokens.sidebarRing,
-    "--chart-1": tokens.chartPrimary,
-    "--chart-2": tokens.chartSecondary,
-    "--chart-3": tokens.chartTertiary,
-    "--chart-4": tokens.chartQuaternary,
-    "--chart-5": tokens.chartQuinary,
-    "--surface-raised": tokens.surfaceRaised,
-    "--shadow-color": tokens.shadowColor,
-    "--shadow-card": `0 1px 2px ${tokens.shadowColor}, 0 10px 28px ${tokens.shadowColor}`,
-    "--shadow-popover": `0 14px 32px ${tokens.shadowColor}`,
-    "--shadow-dialog": `0 22px 64px ${tokens.shadowColor}`,
-
-    // Transitional aliases for components still using the original tokens.
-    "--canvas": tokens.canvas,
-    "--surface": tokens.surface,
-    "--surface-subtle": tokens.surfaceSubtle,
-    "--surface-hover": tokens.surfaceHover,
-    "--fg-default": tokens.foreground,
-    "--fg-muted": tokens.mutedForeground,
-    "--fg-inverse": tokens.inverse,
-    "--border-subtle": tokens.border,
-    "--border-strong": tokens.borderStrong,
-    "--accent-primary": tokens.primary,
-    "--accent-primary-hover": tokens.primaryHover,
-    "--accent-primary-subtle": tokens.primarySubtle,
-    "--accent-contrast": tokens.primaryForeground,
-    "--focus-ring": tokens.focus,
-    "--chart-primary": tokens.chartPrimary,
-  };
 }
 
 const seededThemeProperties = Object.keys(themeTokenProperties(deriveThemeTokens("#1A2B3C", "enterprise", "light")));

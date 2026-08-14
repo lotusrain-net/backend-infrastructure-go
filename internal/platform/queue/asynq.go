@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	taskmodule "backend-infrastructure-go/internal/modules/task"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
 
 	"github.com/hibiken/asynq"
 )

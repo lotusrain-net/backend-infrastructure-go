@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/platform/logging"
+	"github.com/jyysy/backend-infrastructure-go/pkg/logging"
 )
 
 type completedComponent struct{}

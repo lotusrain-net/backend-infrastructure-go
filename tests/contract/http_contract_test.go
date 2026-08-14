@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/shared/pagination"
-	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 func TestHealthHTTPContractUsesSharedEnvelopeAndRequestID(t *testing.T) {
@@ -127,7 +127,7 @@ func TestUsersListHTTPContractReturnsPaginatedUsersWithoutPasswordHashes(t *test
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 		Data struct {
-			Items []iam.User        `json:"items"`
+			Items []iam.User      `json:"items"`
 			Meta  pagination.Meta `json:"meta"`
 		} `json:"data"`
 	}

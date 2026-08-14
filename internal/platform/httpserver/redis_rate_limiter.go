@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -56,12 +57,12 @@ func NewRedisRateLimiter(client redis.Scripter, prefix string, now func() time.T
 	return &RedisRateLimiter{client: client, prefix: prefix, now: now, nonce: newLimiterNonce()}
 }
 
-func (limiter *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (RateLimitDecision, error) {
+func (limiter *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (httpkit.RateLimitDecision, error) {
 	if limiter == nil || limiter.client == nil {
-		return RateLimitDecision{}, fmt.Errorf("redis rate limiter client is required")
+		return httpkit.RateLimitDecision{}, fmt.Errorf("redis rate limiter client is required")
 	}
 	if limit <= 0 || window <= 0 {
-		return RateLimitDecision{}, fmt.Errorf("limit and window must be positive")
+		return httpkit.RateLimitDecision{}, fmt.Errorf("limit and window must be positive")
 	}
 	nowMillis := limiter.now().UnixMilli()
 	windowMillis := window.Milliseconds()
@@ -76,24 +77,24 @@ func (limiter *RedisRateLimiter) Allow(ctx context.Context, key string, limit in
 		member,
 	).Slice()
 	if err != nil {
-		return RateLimitDecision{}, fmt.Errorf("execute rate limit script: %w", err)
+		return httpkit.RateLimitDecision{}, fmt.Errorf("execute rate limit script: %w", err)
 	}
 	if len(result) != 3 {
-		return RateLimitDecision{}, fmt.Errorf("unexpected rate limit script result length %d", len(result))
+		return httpkit.RateLimitDecision{}, fmt.Errorf("unexpected rate limit script result length %d", len(result))
 	}
 	allowed, err := redisInt(result[0])
 	if err != nil {
-		return RateLimitDecision{}, err
+		return httpkit.RateLimitDecision{}, err
 	}
 	remaining, err := redisInt(result[1])
 	if err != nil {
-		return RateLimitDecision{}, err
+		return httpkit.RateLimitDecision{}, err
 	}
 	retryMillis, err := redisInt(result[2])
 	if err != nil {
-		return RateLimitDecision{}, err
+		return httpkit.RateLimitDecision{}, err
 	}
-	return RateLimitDecision{
+	return httpkit.RateLimitDecision{
 		Allowed:    allowed == 1,
 		Remaining:  int(remaining),
 		RetryAfter: time.Duration(retryMillis) * time.Millisecond,

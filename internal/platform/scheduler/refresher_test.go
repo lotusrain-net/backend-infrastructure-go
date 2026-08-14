@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	taskmodule "backend-infrastructure-go/internal/modules/task"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
 )
 
 type sourceStub struct {

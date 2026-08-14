@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light;
+  --font-family-sans: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
+  --font-family-mono: "SFMono-Regular", Consolas, monospace;
+  --background: #F3F6F8;
+  --foreground: #1D2939;
+  --card: #FFFFFF;
+  --card-foreground: #1D2939;
+  --popover: #FFFEFC;
+  --popover-foreground: #1D2939;
+  --primary: #147D6B;
+  --primary-foreground: #FFFFFF;
+  --primary-hover: #0D6556;
+  --primary-subtle: #EAF8F4;
+  --primary-subtle-foreground: #147D6B;
+  --secondary: #FCE7DD;
+  --secondary-foreground: #7B321C;
+  --muted: #E8F1EF;
+  --muted-foreground: #526071;
+  --accent: #DCEBE7;
+  --accent-foreground: #1D2939;
+  --border: #CCDAD7;
+  --input: #8EA8A2;
+  --input-background: #FEFFFE;
+  --ring: #0C7A67;
+  --destructive: #B42318;
+  --destructive-foreground: #FFFFFF;
+  --destructive-subtle: #FFF0EE;
+  --destructive-subtle-foreground: #B42318;
+  --success: #087B4E;
+  --success-subtle: #E9F8F0;
+  --success-subtle-foreground: #087B4E;
+  --warning: #A85C00;
+  --warning-subtle: #FFF5DF;
+  --warning-subtle-foreground: #A85C00;
+  --overlay: rgb(15 23 42 / 52%);
+  --shadow-card: 0 1px 2px rgb(20 125 107 / 16%), 0 10px 28px rgb(29 41 57 / 6%);
+  --shadow-popover: 0 14px 32px rgb(29 41 57 / 16%);
+  --shadow-dialog: 0 22px 64px rgb(29 41 57 / 22%);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
+  --radius-full: 9999px;
+  --text-caption: 0.75rem;
+  --text-label: 0.875rem;
+  --text-body-sm: 0.875rem;
+  --text-body: 1rem;
+  --text-heading-sm: 1rem;
+  --text-heading: 1.25rem;
+}
+
+:root[data-color-mode="dark"] { color-scheme: dark; --background: #10191B; --foreground: #F1FCF8; --card: #152528; --card-foreground: #F1FCF8; --popover: #182A2D; --popover-foreground: #F1FCF8; --primary: #78E0C3; --primary-foreground: #092019; --primary-hover: #92EAD3; --primary-subtle: #133F38; --primary-subtle-foreground: #78E0C3; --secondary: #3F2D2C; --secondary-foreground: #FFD6C6; --muted: #20373A; --muted-foreground: #B5CBC5; --accent: #294347; --accent-foreground: #F1FCF8; --border: #345653; --input: #5B817B; --input-background: #17282A; --ring: #A1F5DF; --destructive: #FF9890; --destructive-foreground: #111923; --destructive-subtle: #512427; --destructive-subtle-foreground: #FF9890; --success: #62D8A1; --success-subtle: #143D31; --success-subtle-foreground: #62D8A1; --warning: #F5BC5B; --warning-subtle: #4B3713; --warning-subtle-foreground: #F5BC5B; --overlay: rgb(0 0 0 / 64%); }
+
+@source "./**/*.{ts,tsx}";
+@import "tailwindcss/utilities.css" layer(utilities);

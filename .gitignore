@@ -11,6 +11,7 @@ bin/
 coverage.out
 dist/
 tmp/
+.tmp-consumers/
 *.exe
 *.test
 *.log

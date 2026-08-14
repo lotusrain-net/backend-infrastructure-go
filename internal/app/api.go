@@ -7,24 +7,25 @@ import (
 	"net/http"
 	"time"
 
-	"backend-infrastructure-go/internal/config"
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/iam"
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	cacheplatform "backend-infrastructure-go/internal/platform/cache"
-	"backend-infrastructure-go/internal/platform/database"
-	"backend-infrastructure-go/internal/platform/database/auditstore"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
-	"backend-infrastructure-go/internal/platform/database/iamstore"
-	"backend-infrastructure-go/internal/platform/database/taskstore"
-	"backend-infrastructure-go/internal/platform/httpserver"
-	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	"backend-infrastructure-go/internal/platform/httpserver/requestmeta"
-	"backend-infrastructure-go/internal/platform/observability"
-	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	"github.com/go-chi/chi/v5"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	cacheplatform "github.com/jyysy/backend-infrastructure-go/internal/platform/cache"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/auditstore"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/iamstore"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/taskstore"
+	privatehttp "github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/requestmeta"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/observability"
+	queueplatform "github.com/jyysy/backend-infrastructure-go/internal/platform/queue"
+	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	database "github.com/jyysy/backend-infrastructure-go/pkg/postgres"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -138,7 +139,7 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 		observer:     metrics,
 		now:          time.Now,
 	}
-	limiter := httpserver.NewRedisRateLimiter(redisClient, "ratelimit:"+cfg.Environment, time.Now)
+	limiter := privatehttp.NewRedisRateLimiter(redisClient, "ratelimit:"+cfg.Environment, time.Now)
 	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RequestMetadataMiddleware: requestmeta.Middleware(requestmeta.Config{TrustedProxies: cfg.TrustedProxyCIDRs}), CORS: httpserver.CORSConfig{AllowedOrigins: cfg.CORSAllowedOrigins, AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions}, AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"}, ExposedHeaders: []string{"X-Request-ID"}, AllowCredentials: cfg.CORSAllowCredentials, MaxAge: 10 * time.Minute}, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Key: auditClientKey, Critical: func(r *http.Request) bool { return isCriticalRateLimitPath(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
 		audited := newAuditedIAM(iamService, auditRecorder)
 		iamhttp.RegisterRoutes(router, audited, jwt, iamhttp.HTTPConfig{SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})

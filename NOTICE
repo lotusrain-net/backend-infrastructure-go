@@ -1,0 +1,17 @@
+Backend Infrastructure Go and @purplevoid/backend-infrastructure-web
+
+Copyright 2026 purplevoid contributors.
+
+The web package contains generic operations-console primitives and patterns
+maintained in this repository. The package does not redistribute the private
+Next application, business DTOs, stores, providers, or application layout.
+
+Third-party frontend dependencies are distributed under their respective
+licenses and remain separate works. Consumers must preserve the notices that
+those dependencies require when redistributing an application bundle.
+
+The upstream owner authorized selective reuse, npm redistribution, and
+Apache-2.0 relicensing of adapted generic source from
+`xuanli520/douyin_dashboard_frontend` at `main@3de3320`. The approved source
+categories and exclusions are recorded in
+`docs/upstream/authorized-frontend.md`.

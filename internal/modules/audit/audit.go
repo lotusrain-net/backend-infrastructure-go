@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type Result string

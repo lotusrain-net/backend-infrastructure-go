@@ -10,18 +10,18 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
-	"backend-infrastructure-go/internal/platform/database/iamstore"
-	"backend-infrastructure-go/internal/platform/database/taskstore"
-	queueplatform "backend-infrastructure-go/internal/platform/queue"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/iamstore"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/taskstore"
+	queueplatform "github.com/jyysy/backend-infrastructure-go/internal/platform/queue"
 )
 
 type integrationPublisher struct {

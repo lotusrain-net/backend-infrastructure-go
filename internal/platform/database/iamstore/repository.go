@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/database"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
+	database "github.com/jyysy/backend-infrastructure-go/pkg/postgres"
 )
 
 type Queries interface {

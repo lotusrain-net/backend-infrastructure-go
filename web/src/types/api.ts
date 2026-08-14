@@ -1,37 +1,5 @@
-export type ThemeName = "enterprise" | "cyberpunk";
-export type ColorMode = "light" | "dark" | "system";
-export type FontScale = "small" | "standard" | "large";
-export type RadiusScale = "square" | "compact" | "rounded";
-
-export interface AccountPreferences {
-  theme: ThemeName;
-  color_mode: ColorMode;
-  accent_color: string | null;
-  font_scale: FontScale;
-  radius_scale: RadiusScale;
-}
-
-export interface ApiEnvelope<T> {
-  code: number;
-  msg: string;
-  data: T;
-}
-
-export type ApiFieldErrors = Record<string, string>;
-
-export interface PaginationMeta {
-  page: number;
-  size: number;
-  total: number;
-  pages: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  meta: PaginationMeta;
-}
+export type { ApiEnvelope, ApiFieldErrors, PaginatedResponse, PaginationMeta } from "@purplevoid/backend-infrastructure-web/api";
+export type { AccountPreferences, ColorMode, FontScale, RadiusScale, ThemeName } from "@purplevoid/backend-infrastructure-web/theme";
 
 export interface LoginRequest {
   email: string;

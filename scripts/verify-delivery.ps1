@@ -20,7 +20,7 @@ function Read-Required([string]$RelativePath) {
 $dockerfile = Read-Required "Dockerfile"
 Assert-True ($dockerfile -match '(?im)^FROM\s+\S+\s+AS\s+build\s*$') "Dockerfile must use a named build stage"
 Assert-True ($dockerfile -match '(?im)^ARG\s+IMAGE_REGISTRY=public\.ecr\.aws/docker\s*$') "Dockerfile must define the default container registry"
-Assert-True ($dockerfile -match '(?im)^FROM\s+\$\{IMAGE_REGISTRY\}/library/golang:1\.26\.5\s+AS\s+build\s*$') "Dockerfile must use IMAGE_REGISTRY for the Go build image"
+Assert-True ($dockerfile -match '(?im)^FROM\s+\$\{IMAGE_REGISTRY\}/library/golang:1\.26\.6\s+AS\s+build\s*$') "Dockerfile must use IMAGE_REGISTRY for the Go build image"
 Assert-True ($dockerfile -match '(?im)^ARG\s+GOPROXY=https://goproxy\.cn,direct\s*$') "Dockerfile must define the Go module mirror"
 Assert-True ($dockerfile -match '(?im)^ARG\s+GOSUMDB=sum\.golang\.google\.cn\s*$') "Dockerfile must define the Go checksum database"
 Assert-True ($dockerfile -match '(?im)^USER\s+10001:10001\s*$') "Dockerfile runtime must use UID/GID 10001"

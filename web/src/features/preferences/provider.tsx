@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { createAppearancePreferences } from "@/features/preferences/appearance";
+import { createAppearancePreferences } from "@purplevoid/backend-infrastructure-web/theme";
 import {
   useCurrentUserPreferencesQuery,
   usePutCurrentUserPreferencesMutation,

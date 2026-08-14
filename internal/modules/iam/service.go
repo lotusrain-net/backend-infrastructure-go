@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"

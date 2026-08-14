@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/httpserver"
-	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 const contractUserID = "00112233-4455-6677-8899-aabbccddeeff"

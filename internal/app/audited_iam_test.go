@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type preserveStub struct{ event audit.NewEvent }

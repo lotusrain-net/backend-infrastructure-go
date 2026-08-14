@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type memoryRefreshCache struct {

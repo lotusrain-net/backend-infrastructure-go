@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
 )
 
 func TestBestEffortRecorderReportsAuditFailureWithoutReplacingPrimaryOutcome(t *testing.T) {

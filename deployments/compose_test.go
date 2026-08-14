@@ -46,7 +46,7 @@ func TestComposeAndBuildStagesUseAConfigurableContainerRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
 	}
-	if !strings.Contains(string(dockerfile), "FROM ${IMAGE_REGISTRY}/library/golang:1.26.5 AS build") {
+	if !strings.Contains(string(dockerfile), "FROM ${IMAGE_REGISTRY}/library/golang:1.26.6 AS build") {
 		t.Error("Dockerfile must use IMAGE_REGISTRY for its Go build image")
 	}
 

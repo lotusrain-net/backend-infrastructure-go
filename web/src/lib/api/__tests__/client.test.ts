@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError } from "@/lib/api/client";
 import { queryClient } from "@/lib/query/client";
-import { getAuthState, setCurrentUser } from "@/stores/auth-store";
+import { clearAuthState, getAuthState, setCurrentUser } from "@/stores/auth-store";
 import type { UserProfile } from "@/types/api";
 
 const currentUser: UserProfile = {
@@ -37,7 +37,16 @@ describe("ApiClient", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new ApiClient();
+    const client = new ApiClient({
+      fetch: fetchMock,
+      refresh: async () => {
+        const response = await fetchMock("/api/v1/auth/refresh", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("refresh failed");
+      },
+    });
     const result = await client.request<UserProfile>("/api/v1/users/me");
 
     expect(result).toEqual(currentUser);
@@ -64,7 +73,7 @@ describe("ApiClient", () => {
       ),
     );
 
-    const client = new ApiClient();
+    const client = new ApiClient({ fetch: globalThis.fetch });
 
     await expect(client.request("/api/v1/auth/login", { method: "POST", body: JSON.stringify({}) })).rejects.toMatchObject({
       message: "validation failed",
@@ -95,7 +104,19 @@ describe("ApiClient", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new ApiClient({ redirectToLogin: redirect });
+    const client = new ApiClient({
+      fetch: fetchMock,
+      messages: { sessionExpired: "登录状态已失效，请重新登录" },
+      refresh: async () => {
+        const response = await fetchMock("/api/v1/auth/refresh", { method: "POST", credentials: "include" });
+        if (!response.ok) throw new Error("refresh failed");
+      },
+      onSessionExpired: () => {
+        clearAuthState();
+        queryClient.clear();
+        redirect("session_expired");
+      },
+    });
 
     await expect(client.request("/api/v1/users/me")).rejects.toEqual(
       expect.objectContaining({
@@ -154,7 +175,13 @@ describe("ApiClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new ApiClient();
+    const client = new ApiClient({
+      fetch: fetchMock,
+      refresh: async () => {
+        const response = await fetchMock("/api/v1/auth/refresh", { method: "POST", credentials: "include" });
+        if (!response.ok) throw new Error("refresh failed");
+      },
+    });
     const pendingUser = client.request<UserProfile>("/api/v1/users/me");
     const pendingRoles = client.request<Array<{ id: string; name: string; description: string }>>("/api/v1/roles");
 
@@ -201,7 +228,19 @@ describe("ApiClient", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new ApiClient({ redirectToLogin: redirect });
+    const client = new ApiClient({
+      fetch: fetchMock,
+      messages: { sessionExpired: "登录状态已失效，请重新登录" },
+      refresh: async () => {
+        const response = await fetchMock("/api/v1/auth/refresh", { method: "POST", credentials: "include" });
+        if (!response.ok) throw new Error("refresh failed");
+      },
+      onSessionExpired: () => {
+        clearAuthState();
+        queryClient.clear();
+        redirect("session_expired");
+      },
+    });
 
     await expect(client.request("/api/v1/users/me")).rejects.toEqual(
       expect.objectContaining({

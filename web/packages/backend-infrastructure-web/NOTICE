@@ -1,0 +1,17 @@
+@purplevoid/backend-infrastructure-web
+
+Copyright 2026 purplevoid contributors.
+
+This package contains generic operations-console primitives and patterns. It
+does not contain the private Next application, business DTOs, stores,
+providers, or application layout.
+
+Third-party frontend dependencies are separate works under their own licenses.
+Consumers must preserve any notices required by those dependencies when
+redistributing an application bundle.
+
+The upstream owner authorized selective reuse, npm redistribution, and
+Apache-2.0 relicensing of adapted generic source from
+`xuanli520/douyin_dashboard_frontend` at `main@3de3320`. The repository records
+the approved source categories and exclusions in
+`docs/upstream/authorized-frontend.md`.

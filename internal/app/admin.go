@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
 )
 
 type AdminBootstrap struct{ Email, Username, Password string }

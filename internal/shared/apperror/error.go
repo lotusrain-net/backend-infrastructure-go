@@ -1,58 +1,20 @@
+// Package apperror is a compatibility adapter for pkg/apikit.
 package apperror
 
-import (
-	"errors"
-	"fmt"
-	"net/http"
-)
+import "github.com/jyysy/backend-infrastructure-go/pkg/apikit"
 
-// Error is the stable public representation of an application failure.
-type Error struct {
-	Code       int    `json:"code"`
-	Message    string `json:"msg"`
-	HTTPStatus int    `json:"-"`
-	Data       any    `json:"data"`
-	cause      error
-}
+type Error = apikit.Error
 
 func New(code int, message string, status int, cause error) *Error {
-	return &Error{Code: code, Message: message, HTTPStatus: status, cause: cause}
+	return apikit.New(code, message, status, cause)
 }
-
-func (e *Error) Error() string {
-	if e.cause == nil {
-		return e.Message
-	}
-	return fmt.Sprintf("%s: %v", e.Message, e.cause)
-}
-
-func (e *Error) Unwrap() error { return e.cause }
-
-func From(err error) *Error {
-	var appError *Error
-	if errors.As(err, &appError) {
-		return appError
-	}
-	return New(http.StatusInternalServerError, "internal server error", http.StatusInternalServerError, err)
-}
-
-func Validation(details map[string]string) *Error {
-	return &Error{
-		Code:       http.StatusUnprocessableEntity,
-		Message:    "validation failed",
-		HTTPStatus: http.StatusUnprocessableEntity,
-		Data:       details,
-	}
-}
-
-func NotFound(resource string) *Error {
-	return New(http.StatusNotFound, resource+" not found", http.StatusNotFound, nil)
-}
-
+func From(err error) *Error                       { return apikit.From(err) }
+func Validation(details map[string]string) *Error { return apikit.Validation(details) }
+func NotFound(resource string) *Error             { return apikit.NotFound(resource) }
+func Conflict(message string, cause error) *Error { return apikit.Conflict(message, cause) }
+func MethodNotAllowed() *Error                    { return apikit.MethodNotAllowed() }
+func Internal(cause error) *Error                 { return apikit.Internal(cause) }
 func ServiceUnavailable(message string, cause error) *Error {
-	return New(http.StatusServiceUnavailable, message, http.StatusServiceUnavailable, cause)
+	return apikit.ServiceUnavailable(message, cause)
 }
-
-func TooManyRequests() *Error {
-	return New(http.StatusTooManyRequests, "too many requests", http.StatusTooManyRequests, nil)
-}
+func TooManyRequests() *Error { return apikit.TooManyRequests() }

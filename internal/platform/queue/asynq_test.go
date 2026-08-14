@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	taskmodule "backend-infrastructure-go/internal/modules/task"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"

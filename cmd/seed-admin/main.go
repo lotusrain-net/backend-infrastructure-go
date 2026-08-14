@@ -8,12 +8,12 @@ import (
 	"syscall"
 	"time"
 
-	"backend-infrastructure-go/internal/app"
-	"backend-infrastructure-go/internal/config"
-	"backend-infrastructure-go/internal/modules/iam"
-	"backend-infrastructure-go/internal/platform/database"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
-	platformlogging "backend-infrastructure-go/internal/platform/logging"
+	"github.com/jyysy/backend-infrastructure-go/internal/app"
+	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
+	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
+	database "github.com/jyysy/backend-infrastructure-go/pkg/postgres"
 )
 
 func main() {

@@ -10,7 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"backend-infrastructure-go/internal/platform/httpserver"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver"
 )
 
 func TestRedisRateLimiterExecutesSlidingWindowScript(t *testing.T) {

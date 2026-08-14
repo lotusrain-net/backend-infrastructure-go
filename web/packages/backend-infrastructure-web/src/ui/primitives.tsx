@@ -1,0 +1,33 @@
+import { cva, type VariantProps } from "class-variance-authority";
+import * as React from "react";
+import { cn } from "../shared/cn";
+
+const alertVariants = cva("relative grid w-full grid-cols-[auto_1fr] gap-x-3 gap-y-1 border px-4 py-3 text-[length:var(--text-body-sm)] [border-radius:var(--radius-lg)]", { variants: { variant: { default: "border-[color:var(--border)] bg-[color:var(--card)] text-[color:var(--card-foreground)]", destructive: "border-[color:var(--destructive)] bg-[color:var(--destructive-subtle)] text-[color:var(--destructive-subtle-foreground)]", success: "border-[color:var(--success)] bg-[color:var(--success-subtle)] text-[color:var(--success-subtle-foreground)]" } }, defaultVariants: { variant: "default" } });
+export function Alert({ className, variant, ...props }: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>) { return <div role="alert" className={cn(alertVariants({ variant }), className)} {...props} />; }
+export function AlertTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) { return <h3 className={cn("col-start-2 font-semibold", className)} {...props} />; }
+export function AlertDescription({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) { return <div className={cn("col-start-2 leading-relaxed opacity-90", className)} {...props} />; }
+
+const badgeVariants = cva("inline-flex w-fit items-center gap-1 border px-2 py-0.5 text-[length:var(--text-caption)] font-medium [border-radius:var(--radius-sm)]", { variants: { variant: { neutral: "border-[color:var(--input)] bg-[color:var(--muted)] text-[color:var(--muted-foreground)]", info: "border-[color:var(--primary)] bg-[color:var(--primary-subtle)] text-[color:var(--primary-subtle-foreground)]", success: "border-[color:var(--success)] bg-[color:var(--success-subtle)] text-[color:var(--success-subtle-foreground)]", warning: "border-[color:var(--warning)] bg-[color:var(--warning-subtle)] text-[color:var(--warning-subtle-foreground)]", danger: "border-[color:var(--destructive)] bg-[color:var(--destructive-subtle)] text-[color:var(--destructive-subtle-foreground)]" } }, defaultVariants: { variant: "neutral" } });
+export function Badge({ className, variant, ...props }: React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>) { return <span className={cn(badgeVariants({ variant }), className)} {...props} />; }
+
+export function Card({ className, ...props }: React.HTMLAttributes<HTMLElement>) { return <section data-slot="card" className={cn("border border-[color:var(--border)] bg-[color:var(--card)] p-5 text-[color:var(--card-foreground)] shadow-[var(--shadow-card)] [border-radius:var(--radius-lg)] sm:p-6", className)} {...props} />; }
+export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) { return <div className={cn("flex flex-col gap-1.5", className)} {...props} />; }
+export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) { return <h2 className={cn("text-[length:var(--text-heading-sm)] font-semibold", className)} {...props} />; }
+export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) { return <p className={cn("text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]", className)} {...props} />; }
+export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) { return <div className={cn("py-4", className)} {...props} />; }
+export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) { return <div className={cn("flex items-center gap-3", className)} {...props} />; }
+
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(({ className, ...props }, ref) => <input ref={ref} className={cn("h-10 w-full border border-[color:var(--input)] bg-[color:var(--input-background)] px-3 text-[length:var(--text-body-sm)] text-[color:var(--foreground)] outline-none [border-radius:var(--radius-md)] placeholder:text-[color:var(--muted-foreground)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] disabled:opacity-50", className)} {...props} />);
+Input.displayName = "Input";
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(({ className, ...props }, ref) => <textarea ref={ref} className={cn("min-h-24 w-full resize-y border border-[color:var(--input)] bg-[color:var(--input-background)] px-3 py-2 text-[length:var(--text-body-sm)] outline-none [border-radius:var(--radius-md)] focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]", className)} {...props} />);
+Textarea.displayName = "Textarea";
+export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) { return <span aria-hidden="true" className={cn("block animate-pulse bg-[color:var(--muted)] [border-radius:var(--radius-sm)]", className)} {...props} />; }
+
+export function Table({ className, ...props }: React.ComponentProps<"table">) { return <div className="w-full overflow-x-auto"><table className={cn("w-full caption-bottom text-left text-[length:var(--text-body-sm)]", className)} {...props} /></div>; }
+export function TableHeader({ className, ...props }: React.ComponentProps<"thead">) { return <thead className={cn("border-b border-[color:var(--border)] bg-[color:var(--muted)] text-[color:var(--muted-foreground)]", className)} {...props} />; }
+export function TableBody({ className, ...props }: React.ComponentProps<"tbody">) { return <tbody className={cn("[&_tr:last-child]:border-0", className)} {...props} />; }
+export function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) { return <tfoot className={cn("border-t border-[color:var(--border)] bg-[color:var(--muted)] font-medium", className)} {...props} />; }
+export function TableRow({ className, ...props }: React.ComponentProps<"tr">) { return <tr className={cn("border-b border-[color:var(--border)] transition-colors hover:bg-[color:var(--accent)]", className)} {...props} />; }
+export function TableHead({ className, ...props }: React.ComponentProps<"th">) { return <th className={cn("h-11 whitespace-nowrap px-4 text-[length:var(--text-caption)] font-semibold", className)} {...props} />; }
+export function TableCell({ className, ...props }: React.ComponentProps<"td">) { return <td className={cn("px-4 py-3 align-middle text-[color:var(--foreground)]", className)} {...props} />; }
+export function TableCaption({ className, ...props }: React.ComponentProps<"caption">) { return <caption className={cn("mt-4 text-[length:var(--text-body-sm)] text-[color:var(--muted-foreground)]", className)} {...props} />; }

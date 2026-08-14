@@ -3,7 +3,7 @@ package iam
 import (
 	"context"
 
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type Application interface {

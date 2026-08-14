@@ -1,15 +1,11 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  ErrorState as PublicErrorState,
+  zhCNPatternMessages,
+  type ErrorStateProps as PublicErrorStateProps,
+} from "@purplevoid/backend-infrastructure-web/patterns";
 
-interface ErrorStateProps {
-  title?: string;
-  message: string;
-}
+export type ErrorStateProps = PublicErrorStateProps;
 
-export function ErrorState({ title = "请求失败", message }: ErrorStateProps) {
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
-    </Alert>
-  );
+export function ErrorState(props: ErrorStateProps) {
+  return <PublicErrorState messages={zhCNPatternMessages} {...props} />;
 }

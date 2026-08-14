@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"backend-infrastructure-go/internal/shared/apperror"
-	"backend-infrastructure-go/internal/shared/response"
+	"github.com/jyysy/backend-infrastructure-go/internal/shared/apperror"
+	"github.com/jyysy/backend-infrastructure-go/internal/shared/response"
 )
 
 func TestWriteEncodesStableEnvelope(t *testing.T) {

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/modules/iam"
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	"backend-infrastructure-go/internal/shared/pagination"
 	"github.com/go-chi/chi/v5"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 type auditListStub struct{ query audit.Query }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	taskmodule "backend-infrastructure-go/internal/modules/task"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
 )
 
 type Source interface {

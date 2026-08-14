@@ -3,7 +3,7 @@ package pagination_test
 import (
 	"testing"
 
-	"backend-infrastructure-go/internal/shared/pagination"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 )
 
 func TestNewMetaCalculatesPageBoundaries(t *testing.T) {

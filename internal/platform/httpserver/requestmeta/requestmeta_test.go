@@ -6,8 +6,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"backend-infrastructure-go/internal/modules/audit"
-	"backend-infrastructure-go/internal/platform/httpserver/requestmeta"
+	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/requestmeta"
 )
 
 func TestMiddlewareInjectsTrustedRequestMetadataIntoContext(t *testing.T) {

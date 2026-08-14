@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	taskmodule "backend-infrastructure-go/internal/modules/task"
-	"backend-infrastructure-go/internal/platform/database/dbgen"
-	"backend-infrastructure-go/internal/shared/pagination"
+	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
+	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
