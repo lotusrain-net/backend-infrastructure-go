@@ -78,7 +78,7 @@ jobs:
           npm run test
           npm run build
           npm run check:package
-          test "$(node -p 'require("./packages/backend-infrastructure-web/package.json").repository.url')" = "https://github.com/jyysy/backend-infrastructure-go.git"
+          test "$(node -p 'require("./packages/backend-infrastructure-web/package.json").repository.url')" = "git+https://github.com/lotusrain-net/backend-infrastructure-go.git"
           consumer_tmp="$PWD/.release-consumer-tmp"
           mkdir -p "$consumer_tmp"
           TMPDIR="$consumer_tmp" npm run test:package-consumers
