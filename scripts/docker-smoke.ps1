@@ -41,6 +41,28 @@ function Invoke-Compose([string[]]$Command) {
     }
 }
 
+function Invoke-ComposeWithRetry(
+    [string[]]$Command,
+    [int]$MaxAttempts = 5
+) {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        & docker @arguments @Command
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        $exitCode = $LASTEXITCODE
+        if ($attempt -eq $MaxAttempts) {
+            throw "docker compose $($Command -join ' ') failed after $MaxAttempts attempts with exit code $exitCode"
+        }
+
+        $backoff = [Math]::Min(60, 5 * [Math]::Pow(2, $attempt - 1))
+        $delaySeconds = [int]$backoff + (Get-Random -Minimum 0 -Maximum 4)
+        Write-Warning "docker compose $($Command -join ' ') failed with exit code $exitCode; retrying in $delaySeconds seconds (attempt $attempt of $MaxAttempts)"
+        Start-Sleep -Seconds $delaySeconds
+    }
+}
+
 function Get-HTTPStatus([string]$URL) {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $URL -TimeoutSec 15
@@ -56,7 +78,10 @@ function Get-HTTPStatus([string]$URL) {
 
 try {
     Invoke-Compose @("build", "api", "web")
-    Invoke-Compose @("up", "-d", "--no-build", "--wait", "--wait-timeout", "180")
+    foreach ($dependency in @("postgres", "redis")) {
+        Invoke-ComposeWithRetry @("pull", "--policy", "missing", $dependency)
+    }
+    Invoke-Compose @("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180")
 
     $postgresUser = (& docker @arguments exec -T postgres printenv POSTGRES_USER | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($postgresUser)) {
@@ -181,7 +206,7 @@ SELECT definition_id FROM schedule;
         if ((Get-HTTPStatus $readinessURL) -ne 503) {
             throw "Readiness did not return 503 during $dependency outage"
         }
-        Invoke-Compose @("up", "-d", "--no-build", "--wait", "--wait-timeout", "60", $dependency)
+        Invoke-Compose @("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60", $dependency)
         $ready = $false
         $readyDeadline = [DateTime]::UtcNow.AddSeconds(30)
         do {
