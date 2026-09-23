@@ -14,6 +14,17 @@ import (
 const minimumSecretLength = 32
 
 type Config struct {
+	RecoveryCodeTTL          time.Duration
+	AuthenticationKey        string
+	AuthenticationPepper     string
+	SMTPEnabled              bool
+	SMTPHost                 string
+	SMTPPort                 string
+	SMTPUsername             string
+	SMTPPassword             string
+	SMTPFrom                 string
+	SMTPTLSMode              string
+	SMTPTimeout              time.Duration
 	Environment              string
 	ServiceName              string
 	HTTPAddr                 string
@@ -50,6 +61,18 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	recoveryCodeTTL, err := duration("RECOVERY_CODE_TTL", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpEnabled, err := boolean("SMTP_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpTimeout, err := duration("SMTP_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
 	shutdownTimeout, err := duration("SHUTDOWN_TIMEOUT", 30*time.Second)
 	if err != nil {
 		return Config{}, err
@@ -112,6 +135,17 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
+		RecoveryCodeTTL:          recoveryCodeTTL,
+		AuthenticationKey:        os.Getenv("AUTHENTICATION_KEY"),
+		AuthenticationPepper:     os.Getenv("AUTHENTICATION_PEPPER"),
+		SMTPEnabled:              smtpEnabled,
+		SMTPHost:                 value("SMTP_HOST", ""),
+		SMTPPort:                 value("SMTP_PORT", "587"),
+		SMTPUsername:             os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:             os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:                 value("SMTP_FROM", ""),
+		SMTPTLSMode:              value("SMTP_TLS_MODE", "starttls"),
+		SMTPTimeout:              smtpTimeout,
 		Environment:              value("APP_ENV", "development"),
 		ServiceName:              value("SERVICE_NAME", "backend-infrastructure-go"),
 		HTTPAddr:                 value("HTTP_ADDR", ":8080"),
@@ -154,6 +188,9 @@ func Load() (Config, error) {
 }
 
 func (c Config) ValidateAPI() error {
+	if err := c.ValidateAuthentication(); err != nil {
+		return err
+	}
 	if len(c.JWTSecret) < minimumSecretLength {
 		return fmt.Errorf("JWT_SECRET must contain at least %d bytes", minimumSecretLength)
 	}

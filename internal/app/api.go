@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -14,6 +16,8 @@ import (
 	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
 	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
 	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/authcache"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/authcrypto"
 	cacheplatform "github.com/jyysy/backend-infrastructure-go/internal/platform/cache"
 	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/auditstore"
 	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
@@ -22,6 +26,7 @@ import (
 	privatehttp "github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver"
 	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
 	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/requestmeta"
+	"github.com/jyysy/backend-infrastructure-go/internal/platform/mailer"
 	"github.com/jyysy/backend-infrastructure-go/internal/platform/observability"
 	queueplatform "github.com/jyysy/backend-infrastructure-go/internal/platform/queue"
 	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
@@ -56,6 +61,9 @@ func NewAPIRouter(options APIRouterOptions) (http.Handler, error) {
 }
 
 var knownAPIRoutes = []string{
+	"/api/v1/auth/email-code", "/api/v1/auth/register", "/api/v1/auth/login/totp/verify",
+	"/api/v1/system-settings/basic-auth", "/api/v1/users/me/security",
+	"/api/v1/users/me/security/totp/enroll", "/api/v1/users/me/security/totp/confirm", "/api/v1/users/me/security/totp/disable",
 	"/health/live", "/health/ready", "/metrics",
 	"/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
 	"/api/v1/users/me", "/api/v1/users/me/preferences", "/api/v1/users", "/api/v1/users/{userID}",
@@ -127,6 +135,15 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 	}
 	refresh := iam.NewRefreshStore(redisCacheAdapter{client: redisClient}, "iam:"+cfg.Environment, cfg.RefreshTokenTTL)
 	iamService := iam.NewServiceWithManagement(iamRepo, iamRepo, iamRepo, iamRepo, iam.NewPasswordHasher(iam.DefaultArgon2Params()), jwt, refresh)
+	key, _ := hex.DecodeString(cfg.AuthenticationKey)
+	pepper, _ := hex.DecodeString(cfg.AuthenticationPepper)
+	crypto, err := authcrypto.New(key, pepper, cfg.JWTIssuer)
+	if err != nil {
+		return nil, closeBuildResources(ctx, resources, err)
+	}
+	codes := authcache.New(redisClient, cfg.Environment, pepper)
+	mail := mailer.New(mailer.Config{Enabled: cfg.SMTPEnabled, Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, TLSMode: cfg.SMTPTLSMode, Timeout: cfg.SMTPTimeout}, logger, pepper)
+	authentication := iam.NewAuthenticationService(iamService, iamstore.NewAuthentication(queries, pool), codes, mail, crypto, codes.Challenges(), cfg.RecoveryCodeTTL)
 	auditService := audit.NewService(auditstore.New(queries))
 	metrics := observability.New(observability.Config{Namespace: "backend", KnownRoutes: knownAPIRoutes, KnownDependencies: []string{"postgres", "redis"}, KnownTaskTypes: RuntimeTaskTypes()})
 	auditRecorder := audit.NewBestEffortRecorder(auditService, logger, metrics)
@@ -140,9 +157,9 @@ func BuildAPI(ctx context.Context, cfg config.Config, logger *slog.Logger) (*api
 		now:          time.Now,
 	}
 	limiter := privatehttp.NewRedisRateLimiter(redisClient, "ratelimit:"+cfg.Environment, time.Now)
-	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RequestMetadataMiddleware: requestmeta.Middleware(requestmeta.Config{TrustedProxies: cfg.TrustedProxyCIDRs}), CORS: httpserver.CORSConfig{AllowedOrigins: cfg.CORSAllowedOrigins, AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions}, AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"}, ExposedHeaders: []string{"X-Request-ID"}, AllowCredentials: cfg.CORSAllowCredentials, MaxAge: 10 * time.Minute}, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Key: auditClientKey, Critical: func(r *http.Request) bool { return isCriticalRateLimitPath(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
+	handler, err := NewAPIRouter(APIRouterOptions{Logger: logger, Readiness: readiness, Metrics: metrics.Handler(), MetricsMiddleware: metrics.HTTPMiddleware, RequestMetadataMiddleware: requestmeta.Middleware(requestmeta.Config{TrustedProxies: cfg.TrustedProxyCIDRs}), CORS: httpserver.CORSConfig{AllowedOrigins: cfg.CORSAllowedOrigins, AllowedMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions}, AllowedHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"}, ExposedHeaders: []string{"X-Request-ID", "Retry-After"}, AllowCredentials: cfg.CORSAllowCredentials, MaxAge: 10 * time.Minute}, RateLimit: &httpserver.RateLimitConfig{Limiter: limiter, Limit: cfg.RateLimit, Window: cfg.RateLimitWindow, Key: auditClientKey, Critical: func(r *http.Request) bool { return isCriticalRateLimitPath(r.URL.Path) }}, RegisterIAM: func(router chi.Router) {
 		audited := newAuditedIAM(iamService, auditRecorder)
-		iamhttp.RegisterRoutes(router, audited, jwt, iamhttp.HTTPConfig{SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})
+		iamhttp.RegisterRoutes(router, audited, jwt, iamhttp.HTTPConfig{Authentication: auditedAuthentication{AuthenticationApplication: authentication, recorder: audited}, SecureCookies: cfg.SecureCookies, RefreshTTL: cfg.RefreshTokenTTL})
 		RegisterPlatformRoutes(router, PlatformRoutes{IAM: audited, JWT: jwt, Audits: auditService, Tasks: submissions, Executions: executionStore, Recorder: auditRecorder, TaskObserver: metrics, TaskCatalog: runtimeTaskCatalog})
 	}})
 	if err != nil {
@@ -217,6 +234,7 @@ func (r dependencyReadiness) check(ctx context.Context, name string, ping func(c
 }
 func isCriticalRateLimitPath(path string) bool {
 	return (len(path) >= 12 && path[:12] == "/api/v1/auth") ||
+		strings.HasPrefix(path, "/api/v1/users/me/security") ||
 		path == "/api/v1/audit-logs" ||
 		path == "/api/v1/task-executions"
 }

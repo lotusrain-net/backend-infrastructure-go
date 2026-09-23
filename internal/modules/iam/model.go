@@ -22,15 +22,16 @@ var (
 )
 
 type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"-"`
-	Active       bool      `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
-	Roles        []Role    `json:"roles,omitempty"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at"`
+	ID              string     `json:"id"`
+	Email           string     `json:"email"`
+	Username        string     `json:"username"`
+	DisplayName     string     `json:"display_name"`
+	PasswordHash    string     `json:"-"`
+	Active          bool       `json:"is_active"`
+	CreatedAt       time.Time  `json:"created_at,omitempty"`
+	UpdatedAt       time.Time  `json:"updated_at,omitempty"`
+	Roles           []Role     `json:"roles,omitempty"`
 }
 
 type AuthenticatedUser struct {

@@ -1,3 +1,5 @@
+@layer theme, base, components, utilities;
+
 :root {
   color-scheme: light;
   --font-family-sans: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", system-ui, sans-serif;
@@ -51,6 +53,20 @@
 }
 
 :root[data-color-mode="dark"] { color-scheme: dark; --background: #10191B; --foreground: #F1FCF8; --card: #152528; --card-foreground: #F1FCF8; --popover: #182A2D; --popover-foreground: #F1FCF8; --primary: #78E0C3; --primary-foreground: #092019; --primary-hover: #92EAD3; --primary-subtle: #133F38; --primary-subtle-foreground: #78E0C3; --secondary: #3F2D2C; --secondary-foreground: #FFD6C6; --muted: #20373A; --muted-foreground: #B5CBC5; --accent: #294347; --accent-foreground: #F1FCF8; --border: #345653; --input: #5B817B; --input-background: #17282A; --ring: #A1F5DF; --destructive: #FF9890; --destructive-foreground: #111923; --destructive-subtle: #512427; --destructive-subtle-foreground: #FF9890; --success: #62D8A1; --success-subtle: #143D31; --success-subtle-foreground: #62D8A1; --warning: #F5BC5B; --warning-subtle: #4B3713; --warning-subtle-foreground: #F5BC5B; --overlay: rgb(0 0 0 / 64%); }
+
+/*
+ * The package ships precompiled utilities, so it cannot rely on the
+ * consuming application's Tailwind theme to provide these defaults. Keep the
+ * spacing scale and responsive breakpoints here so every package component
+ * retains its layout when its CSS is imported on its own.
+ */
+@theme inline {
+  --spacing: 0.25rem;
+  --breakpoint-sm: 40rem;
+  --breakpoint-md: 48rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+}
 
 @source "./**/*.{ts,tsx}";
 @import "tailwindcss/utilities.css" layer(utilities);

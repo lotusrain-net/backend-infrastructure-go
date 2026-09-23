@@ -22,8 +22,9 @@ const (
 )
 
 type HTTPConfig struct {
-	SecureCookies bool
-	RefreshTTL    time.Duration
+	Authentication iam.AuthenticationApplication
+	SecureCookies  bool
+	RefreshTTL     time.Duration
 }
 
 func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager, cfg HTTPConfig) {
@@ -31,6 +32,11 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
+			if cfg.Authentication != nil {
+				r.Post("/email-code", h.emailCode)
+				r.Post("/register", h.register)
+				r.Post("/login/totp/verify", h.verifyLogin)
+			}
 			r.Post("/refresh", h.refresh)
 			r.Post("/logout", h.logout)
 		})
@@ -40,6 +46,15 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 		r.Group(func(r chi.Router) {
 			r.Use(Authenticate(jwt))
 			r.Get("/users/me", h.me)
+			if cfg.Authentication != nil {
+				r.Get("/users/me/security", h.security)
+				r.Put("/users/me/security", h.putSecurity)
+				r.Post("/users/me/security/totp/enroll", h.enroll)
+				r.Post("/users/me/security/totp/confirm", h.confirm)
+				r.Post("/users/me/security/totp/disable", h.disable)
+				r.With(RequirePermission(app, "system-settings:read")).Get("/system-settings/basic-auth", h.settings)
+				r.With(RequirePermission(app, "system-settings:write")).Put("/system-settings/basic-auth", h.putSettings)
+			}
 			r.Get("/users/me/preferences", h.preferences)
 			r.Put("/users/me/preferences", h.putPreferences)
 			r.With(RequirePermission(app, "users:read")).Get("/users", h.users)
@@ -121,11 +136,22 @@ type handler struct {
 }
 
 func (h handler) login(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	setNoStore(w)
+	var in iam.LoginInput
 	if !decode(w, r, &in) {
+		return
+	}
+	if h.cfg.Authentication != nil {
+		result, err := h.cfg.Authentication.Login(r.Context(), in)
+		if err != nil {
+			writeIAMError(w, err)
+			return
+		}
+		if result.Status == "totp_required" {
+			apperror.Write(w, http.StatusAccepted, map[string]any{"status": result.Status, "challenge_id": result.ChallengeID, "expires_in": result.ChallengeExpiresIn})
+			return
+		}
+		h.writeTokenPair(w, result.TokenPair)
 		return
 	}
 	pair, err := h.app.Login(r.Context(), in.Email, in.Password)
@@ -440,12 +466,22 @@ func queryInt(r *http.Request, name string, fallback int) int {
 }
 
 func writeIAMError(w http.ResponseWriter, err error) {
+	var limited *iam.RateLimitError
+	if errors.As(err, &limited) {
+		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
+		apperror.WriteError(w, apperror.New(429, "too many requests", 429, err))
+		return
+	}
 	switch {
-	case errors.Is(err, iam.ErrInvalidCredentials), errors.Is(err, iam.ErrInvalidRefreshToken):
+	case errors.Is(err, iam.ErrEmailCodeRequired):
+		apperror.WriteError(w, apperror.Validation(map[string]string{"email_code": "required"}))
+	case errors.Is(err, iam.ErrInvalidCode), errors.Is(err, iam.ErrInvalidCredentials), errors.Is(err, iam.ErrInvalidRefreshToken):
 		apperror.WriteError(w, apperror.New(401, "invalid credentials", 401, err))
+	case errors.Is(err, iam.ErrAuthenticationForbidden):
+		apperror.WriteError(w, apperror.New(403, "operation not permitted", 403, err))
 	case errors.Is(err, iam.ErrInactiveUser), errors.Is(err, iam.ErrPermissionDenied):
 		apperror.WriteError(w, apperror.New(403, err.Error(), 403, err))
-	case errors.Is(err, iam.ErrDuplicateIdentity), errors.Is(err, iam.ErrCannotDeactivateSelf), errors.Is(err, iam.ErrLastActiveAdministrator), errors.Is(err, iam.ErrSystemRoleProtected):
+	case errors.Is(err, iam.ErrSecurityConflict), errors.Is(err, iam.ErrDuplicateIdentity), errors.Is(err, iam.ErrCannotDeactivateSelf), errors.Is(err, iam.ErrLastActiveAdministrator), errors.Is(err, iam.ErrSystemRoleProtected):
 		apperror.WriteError(w, apperror.New(409, err.Error(), 409, err))
 	case errors.Is(err, iam.ErrInvalidUserInput):
 		apperror.WriteError(w, apperror.Validation(map[string]string{"user": err.Error()}))

@@ -496,7 +496,7 @@ func setActive(ctx context.Context, queries Queries, userID pgtype.UUID, active 
 }
 
 func userFromDB(row dbgen.User) iam.User {
-	return iam.User{ID: uuidString(row.ID), Email: row.Email, Username: row.Username, DisplayName: row.DisplayName, PasswordHash: row.PasswordHash, Active: row.IsActive, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
+	return iam.User{EmailVerifiedAt: timePointer(row.EmailVerifiedAt), ID: uuidString(row.ID), Email: row.Email, Username: row.Username, DisplayName: row.DisplayName, PasswordHash: row.PasswordHash, Active: row.IsActive, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
 }
 
 func roleFromDB(row dbgen.Role) iam.Role {

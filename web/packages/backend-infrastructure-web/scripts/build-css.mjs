@@ -15,4 +15,27 @@ if (/box-sizing\s*:|@import\s+|@tailwind\s+/m.test(result.css)) {
   throw new Error("Public package CSS must be precompiled and must not contain a reset.");
 }
 
+// Spacing utilities depend on the package's own --spacing and breakpoint
+// tokens. Keep this check close to the precompile step so a published package
+// cannot silently regress to unpadded cards, controls, and responsive layouts.
+const requiredUtilities = [
+  ".p-5",
+  ".sm\\:p-6",
+  ".gap-2",
+  ".h-10",
+  ".size-4",
+];
+for (const utility of requiredUtilities) {
+  if (!result.css.includes(utility)) {
+    throw new Error(`Public package CSS is missing required utility: ${utility}`);
+  }
+}
+
+if (!result.css.includes("--spacing: 0.25rem")) {
+  throw new Error("Public package CSS is missing its spacing scale.");
+}
+if (!result.css.includes("@layer theme, base, components, utilities;")) {
+  throw new Error("Public package CSS is missing the Tailwind cascade order.");
+}
+
 await writeFile(destination, result.css);

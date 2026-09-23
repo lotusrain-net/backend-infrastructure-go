@@ -29,7 +29,7 @@ WHERE (sqlc.narg('query')::text IS NULL
 
 -- name: UpdateUserProfile :one
 UPDATE users
-SET email = $2, username = $3, display_name = $4, updated_at = NOW()
+SET email_verified_at = CASE WHEN email = $2 THEN email_verified_at ELSE NULL END, email = $2, username = $3, display_name = $4, updated_at = NOW()
 WHERE id = $1
 RETURNING *;
 

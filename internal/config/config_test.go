@@ -173,6 +173,9 @@ func TestLoadIgnoresLegacyBreakerSettings(t *testing.T) {
 }
 
 func setValidEnvironment(t *testing.T) {
+	t.Setenv("AUTHENTICATION_KEY", strings.Repeat("01", 32))
+	t.Setenv("AUTHENTICATION_PEPPER", strings.Repeat("02", 32))
+	t.Setenv("SMTP_ENABLED", "false")
 	t.Helper()
 	t.Setenv("APP_ENV", "development")
 	t.Setenv("SERVICE_NAME", "backend-infrastructure-go")

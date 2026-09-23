@@ -11,13 +11,14 @@ import (
 const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 type Service struct {
-	users       UserRepository
-	rbac        RBACRepository
-	preferences PreferencesRepository
-	management  ManagementRepository
-	passwords   PasswordService
-	jwt         *JWTManager
-	refresh     *RefreshStore
+	authentication *AuthenticationService
+	users          UserRepository
+	rbac           RBACRepository
+	preferences    PreferencesRepository
+	management     ManagementRepository
+	passwords      PasswordService
+	jwt            *JWTManager
+	refresh        *RefreshStore
 }
 
 func NewService(users UserRepository, rbac RBACRepository, passwords PasswordService, jwt *JWTManager, refresh *RefreshStore) *Service {
@@ -33,6 +34,13 @@ func NewServiceWithManagement(users UserRepository, rbac RBACRepository, prefere
 }
 
 func (s *Service) Login(ctx context.Context, email, password string) (TokenPair, error) {
+	if s.authentication != nil {
+		result, err := s.authentication.Login(ctx, LoginInput{Email: email, Password: password})
+		if result.Status == "totp_required" {
+			return TokenPair{}, ErrInvalidCredentials
+		}
+		return result.TokenPair, err
+	}
 	user, err := s.users.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	passwordHash := dummyPasswordHash
 	if err == nil {
@@ -58,6 +66,9 @@ func (s *Service) Login(ctx context.Context, email, password string) (TokenPair,
 }
 
 func (s *Service) Refresh(ctx context.Context, raw string) (TokenPair, error) {
+	if err := s.requireInitialized(ctx); err != nil {
+		return TokenPair{}, err
+	}
 	userID, err := s.refresh.Lookup(ctx, raw)
 	if err != nil {
 		return TokenPair{}, err
@@ -89,6 +100,9 @@ func (s *Service) RevokeAll(ctx context.Context, userID string) error {
 }
 
 func (s *Service) CurrentUser(ctx context.Context, userID string) (AuthenticatedUser, error) {
+	if err := s.requireInitialized(ctx); err != nil {
+		return AuthenticatedUser{}, err
+	}
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -281,6 +295,11 @@ func (s *Service) GrantPermission(ctx context.Context, roleID, permissionID stri
 	return s.rbac.GrantPermission(ctx, roleID, permissionID)
 }
 func (s *Service) Authorize(ctx context.Context, userID, required string) error {
+	if s.authentication != nil {
+		if err := s.requireActiveUser(ctx, userID); err != nil {
+			return err
+		}
+	}
 	p, err := s.rbac.PermissionsForUser(ctx, userID)
 	if err != nil {
 		return err
@@ -292,6 +311,9 @@ func (s *Service) Authorize(ctx context.Context, userID, required string) error 
 }
 
 func (s *Service) requireActiveUser(ctx context.Context, userID string) error {
+	if err := s.requireInitialized(ctx); err != nil {
+		return err
+	}
 	user, err := s.users.FindByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -301,6 +323,20 @@ func (s *Service) requireActiveUser(ctx context.Context, userID string) error {
 	}
 	if !user.Active {
 		return ErrInactiveUser
+	}
+	return nil
+}
+
+func (s *Service) requireInitialized(ctx context.Context) error {
+	if s.authentication == nil {
+		return nil
+	}
+	state, err := s.authentication.repo.Authentication(ctx)
+	if err != nil {
+		return err
+	}
+	if state.InitializedAt == nil {
+		return ErrInvalidCredentials
 	}
 	return nil
 }

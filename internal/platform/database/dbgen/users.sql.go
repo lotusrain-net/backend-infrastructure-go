@@ -35,7 +35,7 @@ func (q *Queries) CountUsers(ctx context.Context, arg CountUsersParams) (int64, 
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, username, password_hash, display_name)
 VALUES ($1, $2, $3, $4)
-RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
+RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at, email_verified_at
 `
 
 type CreateUserParams struct {
@@ -62,6 +62,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
@@ -76,7 +77,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at FROM users WHERE email = $1
+SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at, email_verified_at FROM users WHERE email = $1
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -91,12 +92,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at FROM users WHERE id = $1
+SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at, email_verified_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -111,12 +113,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at FROM users
+SELECT id, email, username, password_hash, display_name, is_active, created_at, updated_at, email_verified_at FROM users
 WHERE ($1::text IS NULL
     OR email ILIKE '%' || $1 || '%'
     OR username ILIKE '%' || $1 || '%'
@@ -156,6 +159,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.EmailVerifiedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -203,9 +207,9 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 
 const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
-SET email = $2, username = $3, display_name = $4, updated_at = NOW()
+SET email_verified_at = CASE WHEN email = $2 THEN email_verified_at ELSE NULL END, email = $2, username = $3, display_name = $4, updated_at = NOW()
 WHERE id = $1
-RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at
+RETURNING id, email, username, password_hash, display_name, is_active, created_at, updated_at, email_verified_at
 `
 
 type UpdateUserProfileParams struct {
@@ -232,6 +236,7 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EmailVerifiedAt,
 	)
 	return i, err
 }

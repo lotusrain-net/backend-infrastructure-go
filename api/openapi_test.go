@@ -400,3 +400,30 @@ func loadOpenAPI(t *testing.T) *openapi3.T {
 	}
 	return document
 }
+
+func TestAuthenticationSecurityContract(t *testing.T) {
+	d := loadOpenAPI(t)
+	for _, path := range []string{"/api/v1/auth/email-code", "/api/v1/auth/register", "/api/v1/auth/login/totp/verify", "/api/v1/system-settings/basic-auth", "/api/v1/users/me/security", "/api/v1/users/me/security/totp/enroll", "/api/v1/users/me/security/totp/confirm", "/api/v1/users/me/security/totp/disable"} {
+		if d.Paths.Find(path) == nil {
+			t.Errorf("missing %s", path)
+		}
+	}
+	if operationAt(t, d, "POST", "/api/v1/auth/login").Responses.Status(202) == nil {
+		t.Fatal("missing challenge response")
+	}
+	ref := d.Components.Schemas["AuthenticationSettings"]
+	if ref == nil {
+		t.Fatal("missing settings schema")
+	}
+	s := ref.Value
+	for field, want := range map[string]bool{"password_login_enabled": true, "registration_enabled": false, "registration_email_verification_required": true} {
+		if s.Properties[field].Value.Default != want {
+			t.Errorf("incorrect default for %s", field)
+		}
+	}
+	for _, field := range []string{"bootstrap_admin_user_id", "initialized_at"} {
+		if s.Properties[field] != nil {
+			t.Fatalf("private field %s is editable", field)
+		}
+	}
+}

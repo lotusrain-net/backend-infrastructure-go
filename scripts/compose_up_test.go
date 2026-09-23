@@ -25,3 +25,15 @@ func TestComposeUpInitializesTheDevelopmentProfileAndWaitsForHealth(t *testing.T
 		}
 	}
 }
+
+func TestComposeUpGeneratesIndependentAuthenticationSecrets(t *testing.T) {
+	raw, err := os.ReadFile("compose-up.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"authentication_key=$(generate_secret 32)", "authentication_pepper=$(generate_secret 32)", "AUTHENTICATION_KEY=$authentication_key", "AUTHENTICATION_PEPPER=$authentication_pepper"} {
+		if !strings.Contains(string(raw), required) {
+			t.Errorf("missing %s", required)
+		}
+	}
+}
