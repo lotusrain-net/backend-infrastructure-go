@@ -267,7 +267,12 @@ jobs:
           export GOWORK=off
           export GOPRIVATE='github.com/lotusrain-net/*'
           export GONOSUMDB='github.com/lotusrain-net/*'
-          export GOPROXY=direct
+          # Only the module under test is fetched directly through its git tag.
+          # Its public dependencies must come from the module proxy: with
+          # GOPROXY=direct for everything, Go runs `git ls-remote` against
+          # third-party GitHub repositories while the repository-scoped
+          # credential above is in effect, and they reject that request.
+          export GOPROXY=https://proxy.golang.org,direct
           export GOSUMDB=off
           export GOTOOLCHAIN=local
           go get "github.com/lotusrain-net/backend-infrastructure-go@$VERSION"

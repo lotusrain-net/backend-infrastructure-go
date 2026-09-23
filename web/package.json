@@ -1,7 +1,7 @@
 {
   "name": "backend-infrastructure-web",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "workspaces": [
     "packages/backend-infrastructure-web"
   ],
@@ -30,7 +30,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lotusrain-net/backend-infrastructure-web": "0.2.0",
+    "@lotusrain-net/backend-infrastructure-web": "0.2.1",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-checkbox": "^1.3.11",
     "@radix-ui/react-dialog": "^1.1.15",
