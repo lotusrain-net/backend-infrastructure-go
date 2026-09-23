@@ -1,6 +1,6 @@
-@purplevoid/backend-infrastructure-web
+@lotusrain-net/backend-infrastructure-web
 
-Copyright 2026 purplevoid contributors.
+Copyright 2026 lotusrain-net contributors.
 
 This package contains generic operations-console primitives and patterns. It
 does not contain the private Next application, business DTOs, stores,

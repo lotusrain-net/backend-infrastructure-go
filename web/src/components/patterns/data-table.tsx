@@ -4,13 +4,13 @@ import {
   DataTable as PublicDataTable,
   zhCNPatternMessages,
   type DataTableProps,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export type {
   DataTableColumn,
   DataTableProps,
   PageMeta,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export function DataTable<T>(props: DataTableProps<T>) {
   return <PublicDataTable messages={zhCNPatternMessages} {...props} />;

@@ -2,7 +2,7 @@ module example.com/infrastructure-consumer
 
 go 1.26.0
 
-require github.com/jyysy/backend-infrastructure-go v0.0.0
+require github.com/lotusrain-net/backend-infrastructure-go v0.0.0
 
 require (
 	github.com/go-chi/chi/v5 v5.2.3 // indirect
@@ -14,4 +14,4 @@ require (
 	golang.org/x/text v0.39.0 // indirect
 )
 
-replace github.com/jyysy/backend-infrastructure-go => ../..
+replace github.com/lotusrain-net/backend-infrastructure-go => ../..

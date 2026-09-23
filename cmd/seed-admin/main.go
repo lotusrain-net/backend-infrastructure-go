@@ -8,11 +8,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jyysy/backend-infrastructure-go/internal/app"
-	"github.com/jyysy/backend-infrastructure-go/internal/config"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
-	database "github.com/jyysy/backend-infrastructure-go/pkg/postgres"
+	"github.com/lotusrain-net/backend-infrastructure-go/internal/app"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/config"
+	platformlogging "github.com/lotusrain-net/backend-infrastructure-go/pkg/logging"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	database "github.com/lotusrain-net/backend-infrastructure-go/pkg/postgres"
 )
 
 func main() {

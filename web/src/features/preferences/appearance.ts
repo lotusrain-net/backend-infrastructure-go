@@ -11,4 +11,4 @@ export {
   type AccentTokens,
   type ResolvedColorMode,
   type ThemeTokens,
-} from "@purplevoid/backend-infrastructure-web/theme";
+} from "@lotusrain-net/backend-infrastructure-web/theme";

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/apikit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/apikit"
 )
 
 func TestErrorPreservesStableCodeStatusAndCause(t *testing.T) {

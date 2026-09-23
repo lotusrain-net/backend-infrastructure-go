@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	requestcontext "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	requestcontext "github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/audit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
 )
 
 type auditPreserver interface {

@@ -1,1 +1,1 @@
-export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@purplevoid/backend-infrastructure-web/ui";
+export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@lotusrain-net/backend-infrastructure-web/ui";

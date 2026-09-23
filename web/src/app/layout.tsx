@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import "@purplevoid/backend-infrastructure-web/styles.css";
+import "@lotusrain-net/backend-infrastructure-web/styles.css";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/app-providers";
 

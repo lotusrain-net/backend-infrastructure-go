@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+	taskmodule "github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/task"
 )
 
 func TestOpenAPILoadsAndValidates(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
 )
 
 func TestNewMetaCalculatesPageBoundaries(t *testing.T) {

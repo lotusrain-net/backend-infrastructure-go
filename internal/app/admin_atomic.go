@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
-	"github.com/jyysy/backend-infrastructure-go/pkg/postgres"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/database/dbgen"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/postgres"
 )
 
 // SeedBootstrapAdmin serializes creation and binding so a second seed cannot

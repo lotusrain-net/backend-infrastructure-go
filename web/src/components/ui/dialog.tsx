@@ -3,7 +3,7 @@
 import {
   DialogContent as PublicDialogContent,
   type DialogContentProps,
-} from "@purplevoid/backend-infrastructure-web/ui/client";
+} from "@lotusrain-net/backend-infrastructure-web/ui/client";
 
 export {
   Dialog,
@@ -14,7 +14,7 @@ export {
   DialogOverlay,
   DialogTitle,
   DialogTrigger,
-} from "@purplevoid/backend-infrastructure-web/ui/client";
+} from "@lotusrain-net/backend-infrastructure-web/ui/client";
 
 export function DialogContent(props: DialogContentProps) {
   return <PublicDialogContent closeLabel="关闭" {...props} />;

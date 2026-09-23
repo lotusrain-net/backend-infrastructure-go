@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { createAppearancePreferences } from "@purplevoid/backend-infrastructure-web/theme";
+import { createAppearancePreferences } from "@lotusrain-net/backend-infrastructure-web/theme";
 import {
   useCurrentUserPreferencesQuery,
   usePutCurrentUserPreferencesMutation,

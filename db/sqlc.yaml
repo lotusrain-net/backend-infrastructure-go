@@ -1,12 +1,12 @@
 version: "2"
 sql:
   - engine: postgresql
-    schema: migrations
+    schema: ../pkg/migrations
     queries: queries
     gen:
       go:
         package: dbgen
-        out: ../internal/platform/database/dbgen
+        out: ../pkg/platform/database/dbgen
         sql_package: pgx/v5
         emit_interface: true
         emit_json_tags: true

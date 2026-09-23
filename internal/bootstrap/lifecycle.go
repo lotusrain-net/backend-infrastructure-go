@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/lifecycle"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/lifecycle"
 )
 
 type Component = lifecycle.Component

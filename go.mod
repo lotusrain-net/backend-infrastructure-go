@@ -1,4 +1,4 @@
-module github.com/jyysy/backend-infrastructure-go
+module github.com/lotusrain-net/backend-infrastructure-go
 
 go 1.26.0
 

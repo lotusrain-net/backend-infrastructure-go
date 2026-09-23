@@ -23,7 +23,7 @@ func scanModuleImports(t *testing.T) []moduleImport {
 		t.Fatal("locate architecture test source")
 	}
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
-	modulesRoot := filepath.Join(repositoryRoot, "internal", "modules")
+	modulesRoot := filepath.Join(repositoryRoot, "pkg", "modules")
 	var dependencies []moduleImport
 	err := filepath.WalkDir(modulesRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

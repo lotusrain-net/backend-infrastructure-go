@@ -1,1 +1,1 @@
-export { Input } from "@purplevoid/backend-infrastructure-web/ui";
+export { Input } from "@lotusrain-net/backend-infrastructure-web/ui";

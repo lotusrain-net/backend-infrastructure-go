@@ -1,1 +1,1 @@
-export { Button, buttonVariants, type ButtonProps } from "@purplevoid/backend-infrastructure-web/ui";
+export { Button, buttonVariants, type ButtonProps } from "@lotusrain-net/backend-infrastructure-web/ui";

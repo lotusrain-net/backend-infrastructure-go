@@ -2,7 +2,7 @@ import {
   LoadingState as PublicLoadingState,
   zhCNPatternMessages,
   type LoadingStateProps as PublicLoadingStateProps,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export type LoadingStateProps = PublicLoadingStateProps;
 

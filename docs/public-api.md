@@ -2,8 +2,8 @@
 
 ## Go
 
-The Go release publishes six importable packages from
-`github.com/jyysy/backend-infrastructure-go`:
+The Go release publishes importable packages from
+`github.com/lotusrain-net/backend-infrastructure-go`:
 
 - `pkg/postgres`: validated pool configuration, health probes, and `pgx.Tx`
   transaction execution with commit, rollback, and panic propagation rules.
@@ -13,15 +13,26 @@ The Go release publishes six importable packages from
 - `pkg/lifecycle`: cancellable components and bounded, reverse-order cleanup.
 - `pkg/logging`: JSON `slog` construction and strict level parsing.
 - `pkg/pagination`: normalized pages and metadata with a size cap of 100.
+- `pkg/config`: typed environment configuration with validation.
+- `pkg/migrations`: the embedded PostgreSQL migration set and its
+  golang-migrate source driver (`FS` and `Source`).
+- `pkg/modules/iam`, `pkg/modules/audit`, `pkg/modules/task`: domain and
+  application behavior.
+- `pkg/platform/...`: infrastructure adapters (database, httpserver,
+  observability, queue, scheduler, cache, authcrypto, authcache, mailer,
+  resilience, logging).
+- `pkg/shared/...`: small cross-cutting contracts (apperror, pagination,
+  requestcontext, response).
 
-Only exported identifiers documented by GoDoc are part of the v0.1 contract.
-The repository's `internal/` tree is private and is not a supported import
-surface. In particular, IAM, task, audit, sqlc/dbgen, migrations, Asynq,
-scheduler, and application assembly remain private.
+Only exported identifiers documented by GoDoc are part of the public contract.
+The `internal/` tree remains private and is not a supported import surface:
+application assembly (`internal/app`), command wiring (`cmd`), composition
+bootstrap (`internal/bootstrap`), and integration fixtures
+(`internal/testutil`).
 
 ## npm
 
-The public package is `@purplevoid/backend-infrastructure-web@0.1.0`.
+The public package is `@lotusrain-net/backend-infrastructure-web@0.2.0`.
 
 | Export | Scope |
 | --- | --- |

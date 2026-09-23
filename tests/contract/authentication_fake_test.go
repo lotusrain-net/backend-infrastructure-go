@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
 )
 
 type contractAuthentication struct{ app *contractApplication }

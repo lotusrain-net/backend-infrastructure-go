@@ -1,3 +1,3 @@
 "use client";
 
-export { Checkbox } from "@purplevoid/backend-infrastructure-web/ui/client";
+export { Checkbox } from "@lotusrain-net/backend-infrastructure-web/ui/client";

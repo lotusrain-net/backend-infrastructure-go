@@ -10,9 +10,9 @@ func TestModulesDoNotImportCompositionOrConcreteHTTPAdapters(t *testing.T) {
 
 	for _, dependency := range scanModuleImports(t) {
 		for _, forbidden := range []string{
-			"github.com/jyysy/backend-infrastructure-go/cmd",
-			"github.com/jyysy/backend-infrastructure-go/internal/bootstrap",
-			"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver",
+			"github.com/lotusrain-net/backend-infrastructure-go/cmd",
+			"github.com/lotusrain-net/backend-infrastructure-go/internal/bootstrap",
+			"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/httpserver",
 		} {
 			if strings.HasPrefix(dependency.importPath, forbidden) {
 				t.Errorf("%s imports forbidden composition dependency %s", dependency.file, dependency.importPath)
@@ -31,7 +31,7 @@ func TestDomainFilesDoNotImportInfrastructureSDKs(t *testing.T) {
 			"github.com/jackc/pgx",
 			"github.com/redis/go-redis",
 			"github.com/hibiken/asynq",
-			"github.com/jyysy/backend-infrastructure-go/internal/platform",
+			"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform",
 		} {
 			if strings.HasPrefix(dependency.importPath, forbidden) {
 				t.Errorf("%s imports forbidden infrastructure dependency %s", dependency.file, dependency.importPath)
@@ -44,11 +44,11 @@ func TestPublicPackagesDoNotImportInternalCode(t *testing.T) {
 	t.Parallel()
 
 	forbiddenPrefixes := []string{
-		"github.com/jyysy/backend-infrastructure-go/internal/",
-		"github.com/jyysy/backend-infrastructure-go/cmd/",
-		"github.com/jyysy/backend-infrastructure-go/db/",
-		"github.com/jyysy/backend-infrastructure-go/scripts/",
-		"github.com/jyysy/backend-infrastructure-go/tests/",
+		"github.com/lotusrain-net/backend-infrastructure-go/internal/",
+		"github.com/lotusrain-net/backend-infrastructure-go/cmd/",
+		"github.com/lotusrain-net/backend-infrastructure-go/db/",
+		"github.com/lotusrain-net/backend-infrastructure-go/scripts/",
+		"github.com/lotusrain-net/backend-infrastructure-go/tests/",
 	}
 	for _, dependency := range scanPackageImports(t, "pkg") {
 		for _, forbidden := range forbiddenPrefixes {

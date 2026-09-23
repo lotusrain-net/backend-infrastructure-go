@@ -3,7 +3,7 @@
 import {
   ManagementDialog as PublicManagementDialog,
   type ManagementDialogProps as PublicManagementDialogProps,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export type ManagementDialogProps = PublicManagementDialogProps;
 

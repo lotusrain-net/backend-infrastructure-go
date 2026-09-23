@@ -1,6 +1,6 @@
 {
-  "name": "@purplevoid/backend-infrastructure-web",
-  "version": "0.1.0",
+  "name": "@lotusrain-net/backend-infrastructure-web",
+  "version": "0.2.0",
   "description": "Framework-neutral UI and API infrastructure for operations consoles.",
   "license": "Apache-2.0",
   "repository": {

@@ -17,7 +17,7 @@ const workspace = mkdtempSync(
 
 run(
   "npm",
-  ["run", "build", "--workspace", "@purplevoid/backend-infrastructure-web"],
+  ["run", "build", "--workspace", "@lotusrain-net/backend-infrastructure-web"],
   webRoot,
 );
 const packOutput = run(
@@ -39,7 +39,7 @@ async function verifyViteConsumer(packageTarball) {
     type: "module",
     scripts: { build: "tsc --noEmit && vite build" },
     dependencies: {
-      "@purplevoid/backend-infrastructure-web": `file:${packageTarball}`,
+      "@lotusrain-net/backend-infrastructure-web": `file:${packageTarball}`,
       "@vitejs/plugin-react": "5.2.0",
       react: "18.3.1",
       "react-dom": "18.3.1",
@@ -73,12 +73,12 @@ async function verifyViteConsumer(packageTarball) {
     `
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { ApiClient, deriveThemeTokens } from "@purplevoid/backend-infrastructure-web";
-import { withQuery } from "@purplevoid/backend-infrastructure-web/api";
-import { Button, Card, cn } from "@purplevoid/backend-infrastructure-web/ui";
-import { Checkbox, Tabs, TabsContent, TabsList, TabsTrigger } from "@purplevoid/backend-infrastructure-web/ui/client";
-import { ErrorState, PaginationControls } from "@purplevoid/backend-infrastructure-web/patterns";
-import "@purplevoid/backend-infrastructure-web/styles.css";
+import { ApiClient, deriveThemeTokens } from "@lotusrain-net/backend-infrastructure-web";
+import { withQuery } from "@lotusrain-net/backend-infrastructure-web/api";
+import { Button, Card, cn } from "@lotusrain-net/backend-infrastructure-web/ui";
+import { Checkbox, Tabs, TabsContent, TabsList, TabsTrigger } from "@lotusrain-net/backend-infrastructure-web/ui/client";
+import { ErrorState, PaginationControls } from "@lotusrain-net/backend-infrastructure-web/patterns";
+import "@lotusrain-net/backend-infrastructure-web/styles.css";
 
 const client = new ApiClient({ fetch: globalThis.fetch });
 const tokens = deriveThemeTokens("#147D6B", "enterprise", "light");
@@ -108,7 +108,7 @@ async function verifyNextConsumer(packageTarball) {
     private: true,
     scripts: { build: "next build" },
     dependencies: {
-      "@purplevoid/backend-infrastructure-web": `file:${packageTarball}`,
+      "@lotusrain-net/backend-infrastructure-web": `file:${packageTarball}`,
       next: "16.3.0",
       react: "19.1.1",
       "react-dom": "19.1.1",
@@ -122,13 +122,13 @@ async function verifyNextConsumer(packageTarball) {
   });
   writeFileSync(
     join(directory, "next.config.mjs"),
-    "export default { transpilePackages: ['@purplevoid/backend-infrastructure-web'] };\n",
+    "export default { transpilePackages: ['@lotusrain-net/backend-infrastructure-web'] };\n",
   );
   writeFileSync(
     join(directory, "app", "layout.tsx"),
     `
 import type { ReactNode } from "react";
-import "@purplevoid/backend-infrastructure-web/styles.css";
+import "@lotusrain-net/backend-infrastructure-web/styles.css";
 export default function Layout({ children }: { children: ReactNode }) { return <html lang="en"><body>{children}</body></html>; }
 `,
   );
@@ -137,17 +137,17 @@ export default function Layout({ children }: { children: ReactNode }) { return <
     `
 "use client";
 import { useState } from "react";
-import { Button } from "@purplevoid/backend-infrastructure-web/ui";
-import { Checkbox } from "@purplevoid/backend-infrastructure-web/ui/client";
-import { ConfirmationDialog } from "@purplevoid/backend-infrastructure-web/patterns";
+import { Button } from "@lotusrain-net/backend-infrastructure-web/ui";
+import { Checkbox } from "@lotusrain-net/backend-infrastructure-web/ui/client";
+import { ConfirmationDialog } from "@lotusrain-net/backend-infrastructure-web/patterns";
 export function ClientBoundary() { const [open, setOpen] = useState(false); return <><Button onClick={() => setOpen(true)}>Open</Button><Checkbox aria-label="Select" /><ConfirmationDialog open={open} onOpenChange={setOpen} onConfirm={() => {}} /></>; }
 `,
   );
   writeFileSync(
     join(directory, "app", "page.tsx"),
     `
-import { deriveThemeTokens } from "@purplevoid/backend-infrastructure-web/theme";
-import { Alert, Card } from "@purplevoid/backend-infrastructure-web/ui";
+import { deriveThemeTokens } from "@lotusrain-net/backend-infrastructure-web/theme";
+import { Alert, Card } from "@lotusrain-net/backend-infrastructure-web/ui";
 import { ClientBoundary } from "./client";
 export default function Page() { const tokens = deriveThemeTokens("#147D6B", "enterprise", "light"); return <main data-primary={tokens.primary}><Card><Alert>SSR fixture</Alert><ClientBoundary /></Card></main>; }
 `,

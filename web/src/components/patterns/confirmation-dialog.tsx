@@ -4,7 +4,7 @@ import {
   ConfirmationDialog as PublicConfirmationDialog,
   zhCNPatternMessages,
   type ConfirmationDialogProps as PublicConfirmationDialogProps,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export type ConfirmationDialogProps = PublicConfirmationDialogProps;
 

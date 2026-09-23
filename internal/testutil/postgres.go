@@ -47,7 +47,7 @@ func Postgres(t *testing.T, migrationCount int) *pgxpool.Pool {
 	}
 	t.Cleanup(pool.Close)
 	_, file, _, _ := runtime.Caller(0)
-	files, e := filepath.Glob(filepath.Join(filepath.Dir(file), "../../db/migrations/*.up.sql"))
+	files, e := filepath.Glob(filepath.Join(filepath.Dir(file), "../../pkg/migrations/*.up.sql"))
 	if e != nil {
 		t.Fatal(e)
 	}

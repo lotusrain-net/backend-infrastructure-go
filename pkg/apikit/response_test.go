@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/apikit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/apikit"
 )
 
 func TestWriteEncodesStableEnvelope(t *testing.T) {

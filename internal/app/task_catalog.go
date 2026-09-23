@@ -1,6 +1,6 @@
 package app
 
-import taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
+import taskmodule "github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/task"
 
 var runtimeTaskCatalog = mustTaskCatalog(
 	taskmodule.TaskRegistration{TaskType: taskmodule.SystemTestTaskType, Handler: taskmodule.SystemTestHandler{}},

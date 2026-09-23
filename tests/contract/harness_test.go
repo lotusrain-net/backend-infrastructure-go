@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	httpserver "github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/httpserver/iamhttp"
 )
 
 const contractUserID = "00112233-4455-6677-8899-aabbccddeeff"

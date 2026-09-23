@@ -15,11 +15,11 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/hibiken/asynq"
-	"github.com/jyysy/backend-infrastructure-go/internal/config"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
-	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/observability"
-	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/config"
+	platformlogging "github.com/lotusrain-net/backend-infrastructure-go/pkg/logging"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/audit"
+	taskmodule "github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/task"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/observability"
 	"github.com/redis/go-redis/v9"
 )
 

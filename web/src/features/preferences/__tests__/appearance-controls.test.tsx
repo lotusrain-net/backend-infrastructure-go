@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppearanceControls } from "@/features/preferences/appearance-controls";
-import { DEFAULT_ACCOUNT_PREFERENCES } from "@purplevoid/backend-infrastructure-web/theme";
+import { DEFAULT_ACCOUNT_PREFERENCES } from "@lotusrain-net/backend-infrastructure-web/theme";
 
 const updatePreferences = vi.fn();
 const previewPreferences = vi.fn();

@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/apikit"
-	"github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
-	"github.com/jyysy/backend-infrastructure-go/pkg/lifecycle"
-	"github.com/jyysy/backend-infrastructure-go/pkg/logging"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
-	"github.com/jyysy/backend-infrastructure-go/pkg/postgres"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/apikit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/lifecycle"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/logging"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/postgres"
 )
 
 var (

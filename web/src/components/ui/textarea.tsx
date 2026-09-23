@@ -1,1 +1,1 @@
-export { Textarea } from "@purplevoid/backend-infrastructure-web/ui";
+export { Textarea } from "@lotusrain-net/backend-infrastructure-web/ui";
