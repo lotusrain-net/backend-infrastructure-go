@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
@@ -72,6 +73,52 @@ func TestEmailCodeErrorsAndRetryAfter(t *testing.T) {
 		}
 		if strings.Contains(w.Body.String(), "initializ") || strings.Contains(w.Body.String(), "exist") {
 			t.Fatal("state leak")
+		}
+	}
+}
+
+func (s authenticationStub) Enroll(context.Context, string, iam.SecurityProof) (iam.Enrollment, error) {
+	return iam.Enrollment{}, s.err
+}
+func (s authenticationStub) Confirm(context.Context, string, string) ([]string, error) {
+	return nil, s.err
+}
+func (s authenticationStub) Disable(context.Context, string, iam.SecurityProof) error { return s.err }
+
+func TestSecurityProofErrorsAreDistinctFromExpiredSessions(t *testing.T) {
+	jwt, err := iam.NewJWTManager([]byte("01234567890123456789012345678901"), "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := jwt.Issue("user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range []string{"enroll", "confirm", "disable"} {
+		for _, proofErr := range []error{iam.ErrInvalidCode, iam.ErrInvalidCredentials} {
+			t.Run(operation+"/"+proofErr.Error(), func(t *testing.T) {
+				r := chi.NewRouter()
+				RegisterRoutes(r, nil, jwt, HTTPConfig{Authentication: authenticationStub{err: proofErr}})
+				for _, session := range []string{"", token} {
+					body := `{"password":"wrong","code":"000000"}`
+					if operation == "confirm" {
+						body = `{"code":"000000"}`
+					}
+					request := httptest.NewRequest("POST", "/api/v1/users/me/security/totp/"+operation, strings.NewReader(body))
+					if session != "" {
+						request.Header.Set("Authorization", "Bearer "+session)
+					}
+					w := httptest.NewRecorder()
+					r.ServeHTTP(w, request)
+					want := 401
+					if session != "" {
+						want = 422
+					}
+					if w.Code != want {
+						t.Fatalf("status=%d want=%d body=%s", w.Code, want, w.Body.String())
+					}
+				}
+			})
 		}
 	}
 }

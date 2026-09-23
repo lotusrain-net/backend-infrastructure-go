@@ -198,3 +198,34 @@ func TestCodeDeliveryFailureAndUnknownMailboxHaveSameOutcome(t *testing.T) {
 		t.Fatal("credential not stored independently of delivery")
 	}
 }
+
+type resetDuringLoginUsers struct{ authUsersStub }
+
+func (u resetDuringLoginUsers) FindByID(context.Context, string) (User, error) {
+	user := u.user
+	user.PasswordHash = "new-password-hash"
+	return user, nil
+}
+
+type challengeRecorder struct {
+	Challenges
+	issued int
+}
+
+func (c *challengeRecorder) Issue(context.Context, Challenge) (string, error) {
+	c.issued++
+	return "challenge", nil
+}
+
+func TestLoginDoesNotBindOldPasswordToNewSecurityVersion(t *testing.T) {
+	now := time.Now()
+	repo := &authRepoStub{state: AuthenticationState{AuthenticationSettings: DefaultAuthenticationSettings(), InitializedAt: &now}, security: SecurityState{SecuritySettings: SecuritySettings{Mode: "totp", TOTPEnabled: true}, Version: 2}}
+	service, _ := testAuthentication(t, repo)
+	service.base.users = resetDuringLoginUsers{authUsersStub{user: User{ID: "user", Email: "u@example.com", PasswordHash: "old-password-hash", Active: true}}}
+	challenges := &challengeRecorder{}
+	service.challenges = challenges
+	_, err := service.Login(context.Background(), LoginInput{Email: "u@example.com", Password: "correct-password"})
+	if !errors.Is(err, ErrInvalidCredentials) || challenges.issued != 0 {
+		t.Fatal("password changed during login but challenge was issued", err)
+	}
+}

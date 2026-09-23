@@ -84,6 +84,31 @@ func (s *AuthenticationStore) SaveSecurity(ctx context.Context, id string, v iam
 	if e != nil {
 		return e
 	}
+	if v.Mode == "email" {
+		return postgres.RunInTx(ctx, s.beginner, func(ctx context.Context, tx pgx.Tx) error {
+			q := s.q.WithTx(tx)
+			// Serialize with profile changes and recheck verification after the
+			// lock: the service's earlier user snapshot may already be stale.
+			if _, e := q.LockSecuritySettings(ctx, u); e != nil {
+				return mapDBError(e)
+			}
+			user, e := q.GetUserByID(ctx, u)
+			if e != nil {
+				return mapDBError(e)
+			}
+			if !user.EmailVerifiedAt.Valid {
+				return iam.ErrAuthenticationForbidden
+			}
+			n, e := q.SaveSecuritySettings(ctx, securityParams(u, v, version))
+			if e != nil {
+				return e
+			}
+			if n != 1 {
+				return iam.ErrSecurityConflict
+			}
+			return nil
+		})
+	}
 	n, e := s.q.SaveSecuritySettings(ctx, securityParams(u, v, version))
 	if e != nil {
 		return e

@@ -1,6 +1,7 @@
 package iamhttp
 
 import (
+	"errors"
 	"net"
 	"net/http"
 
@@ -117,7 +118,7 @@ func (h handler) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	v, e := h.cfg.Authentication.Enroll(r.Context(), iam.Subject(r.Context()), in)
 	if e != nil {
-		writeIAMError(w, e)
+		writeSecurityProofError(w, e)
 		return
 	}
 	apperror.Write(w, 200, v)
@@ -132,7 +133,7 @@ func (h handler) confirm(w http.ResponseWriter, r *http.Request) {
 	}
 	v, e := h.cfg.Authentication.Confirm(r.Context(), iam.Subject(r.Context()), in.Code)
 	if e != nil {
-		writeIAMError(w, e)
+		writeSecurityProofError(w, e)
 		return
 	}
 	apperror.Write(w, 200, map[string]any{"recovery_codes": v})
@@ -144,8 +145,19 @@ func (h handler) disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e := h.cfg.Authentication.Disable(r.Context(), iam.Subject(r.Context()), in); e != nil {
-		writeIAMError(w, e)
+		writeSecurityProofError(w, e)
 		return
 	}
 	apperror.Write(w, 200, map[string]bool{"disabled": true})
+}
+
+// Session authentication is handled by middleware (401). Invalid step-up
+// proofs on an authenticated request are validation failures, not a signal
+// for clients to refresh the session or replay a one-time credential.
+func writeSecurityProofError(w http.ResponseWriter, err error) {
+	if errors.Is(err, iam.ErrInvalidCode) || errors.Is(err, iam.ErrInvalidCredentials) {
+		apperror.WriteError(w, apperror.Validation(map[string]string{"proof": "invalid or expired credential"}))
+		return
+	}
+	writeIAMError(w, err)
 }

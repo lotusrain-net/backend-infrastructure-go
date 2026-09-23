@@ -100,6 +100,15 @@ func (q *Queries) InsertAuthenticationConsumption(ctx context.Context, arg Inser
 	return err
 }
 
+const invalidatePasswordCredentials = `-- name: InvalidatePasswordCredentials :exec
+UPDATE user_security_settings SET version=version+1, pending_secret=NULL, pending_expires_at=NULL WHERE user_id=$1
+`
+
+func (q *Queries) InvalidatePasswordCredentials(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, invalidatePasswordCredentials, userID)
+	return err
+}
+
 const lockAuthenticationSettings = `-- name: LockAuthenticationSettings :one
 SELECT singleton, password_login_enabled, registration_enabled, registration_email_verification_required, allowed_email_domains, bootstrap_admin_user_id, initialized_at FROM authentication_settings WHERE singleton = TRUE FOR UPDATE
 `

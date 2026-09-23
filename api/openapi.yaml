@@ -313,6 +313,7 @@ paths:
     patch:
       operationId: updateUser
       summary: Update a user profile
+      description: Email changes are forbidden while email second-factor authentication is enabled. Other profile fields can still be updated.
       security:
         - bearerAuth: []
         - accessCookie: []
@@ -345,6 +346,7 @@ paths:
     post:
       operationId: resetUserPassword
       summary: Reset a user's password and revoke their sessions
+      description: Atomically updates the password and invalidates outstanding TOTP login challenges and pending enrollment. Enabled TOTP remains required for new logins.
       security:
         - bearerAuth: []
         - accessCookie: []
@@ -1113,6 +1115,7 @@ paths:
   /api/v1/users/me/security/totp/enroll:
     post:
       operationId: enrollTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid current-password proof returns 422 with data.proof; do not refresh or automatically retry that proof.
       summary: >-
         Verify current password and begin ten-minute TOTP enrollment. Generate QR
         locally from otpauth_uri; do not persist or log secrets.
@@ -1162,6 +1165,7 @@ paths:
   /api/v1/users/me/security/totp/confirm:
     post:
       operationId: confirmTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid or expired proof returns 422 with data.proof; do not refresh or automatically retry that proof.
       summary: Confirm enrollment and display ten one-time recovery codes exactly once.
       security:
         - bearerAuth: []
@@ -1209,6 +1213,7 @@ paths:
   /api/v1/users/me/security/totp/disable:
     post:
       operationId: disableTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid password or second-factor proof returns 422 with data.proof. Retries with a valid password complete session revocation even if TOTP is already disabled.
       summary: >-
         Verify current password and a code or recovery code, then disable TOTP.
         Repeating after disable is idempotent with a valid password.

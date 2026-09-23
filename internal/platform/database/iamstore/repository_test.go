@@ -13,6 +13,7 @@ import (
 )
 
 type fakeQueries struct {
+	dbgen.Querier
 	user          dbgen.User
 	users         []dbgen.User
 	total         int64

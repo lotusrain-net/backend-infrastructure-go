@@ -98,7 +98,7 @@ export function useSecurityMutations() {
     mutationFn: (proof: SecurityProof) =>
       apiClient.request<TOTPEnrollment>(
         "/api/v1/users/me/security/totp/enroll",
-        { method: "POST", body: proof, requiresAuth: false },
+        { method: "POST", body: proof },
       ),
     gcTime: 0,
   });
@@ -106,7 +106,7 @@ export function useSecurityMutations() {
     mutationFn: (code: string) =>
       apiClient.request<{ recovery_codes: string[] }>(
         "/api/v1/users/me/security/totp/confirm",
-        { method: "POST", body: { code }, requiresAuth: false },
+        { method: "POST", body: { code } },
       ),
     onSuccess: invalidate,
     gcTime: 0,
@@ -116,7 +116,7 @@ export function useSecurityMutations() {
     mutationFn: (proof: SecurityProof) =>
       apiClient.request<{ disabled: boolean }>(
         "/api/v1/users/me/security/totp/disable",
-        { method: "POST", body: proof, requiresAuth: false },
+        { method: "POST", body: proof },
       ),
     onSuccess: invalidate,
   });

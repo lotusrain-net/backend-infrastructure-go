@@ -21,7 +21,7 @@
 
 注册成功返回 `201` 用户资料，不签发 token 或 cookie。关闭注册邮箱验证时，新用户保持 `email_verified_at=null`，可以密码登录。
 
-个人安全策略 `mode` 为 `default`、`email`、`totp`。`default` 不要求邮箱码；`email` 仅适用于已验证邮箱，与注册邮箱验证开关无关。管理端修改用户邮箱会清空验证时间。
+个人安全策略 `mode` 为 `default`、`email`、`totp`。`default` 不要求邮箱码；`email` 仅适用于已验证邮箱，与注册邮箱验证开关无关。启用 `email` 时，修改邮箱返回 `403`，原邮箱与验证时间保持不变；同邮箱的资料修改不受影响。用户需先将安全策略改为 `default` 才能修改邮箱。其他模式下修改邮箱会清空验证时间；当前尚无既有账号重新验证邮箱入口，因此修改后不能再次启用 `email`。邮箱修改与邮箱策略启用在数据库中串行校验，避免并发操作使账号无法登录。
 
 登录页仅填写邮箱和密码，不再提供“我的账号启用了邮箱二次验证”选择框；注册页也不预先显示验证码输入。服务端要求邮箱验证且请求未提供 `email_code` 时，返回 `422`，`data` 为 `{"email_code":"required"}`，前端据此弹出验证框，获取验证码后附带原始表单信息重新提交。登录仅在账号密码校验成功后返回该信号；注册先校验开放策略、邮箱域名和基本信息。不填写验证码不会消耗验证码尝试次数；填写错误或过期验证码仍返回 `401`。
 
@@ -54,7 +54,11 @@ API 需要以下独立、稳定的密钥，各由 `openssl rand -hex 32` 生成�
 
 TOTP 使用 RFC 6238、SHA-1、六位数字、三十秒周期，接受前后一个时间窗口，并通过数据库行锁和最后使用的时间步阻止重放。challenge 最多五次尝试；数据库保存其摘要消费记录。恢复码消费会原子更新安全版本，使旧 challenge 和旧设置写入失效，防止恢复已消费凭据。
 
-停用要求当前密码和 TOTP/恢复码；停用后再次提交有效密码具备幂等行为。成功停用撤销 refresh 会话。安全设置不允许通过普通 PUT 静默关闭已启用的 TOTP。短时凭据仅在请求体或内存中传递；响应包含 `Cache-Control: no-store`，前端不持久化这些值。
+密码重置在同一 PostgreSQL 事务中更新密码、递增安全版本并清除待确认的 TOTP 绑定。重置前获取的 challenge 无法再使用 TOTP 或恢复码登录；已启用的 TOTP 及未使用的恢复码保留，必须用新密码获取新 challenge。
+
+停用要求当前密码和 TOTP/恢复码；停用后再次提交有效密码具备幂等行为，每次重试都会完成 refresh 会话撤销，包括数据库停用已提交但 Redis 撤销失败的情况。安全设置不允许通过普通 PUT 静默关闭已启用的 TOTP。短时凭据仅在请求体或内存中传递；响应包含 `Cache-Control: no-store`，前端不持久化这些值。
+
+`enroll`、`confirm`、`disable` 均要求登录。会话缺失或 access token 过期返回 `401`，前端可刷新会话并重试一次；已登录请求的密码、TOTP 或恢复码错误返回 `422`，`data.proof` 为 `invalid or expired credential`，不会刷新、自动重放验证码或清除登录状态。公开登录接口的无效凭据仍返回 `401`。
 
 ## 验证
 
@@ -67,3 +71,5 @@ AUTH_TEST_DATABASE_URL='postgres://.../test?sslmode=disable' go test ./internal/
 ```
 
 `MIGRATION_TEST_DATABASE_URL` 用于既有迁移 up/down/up 测试，必须指向可丢弃的独立测试库。Redis Lua 测试使用 miniredis；SMTP 测试使用本地 TLS/STARTTLS 服务和证书。
+
+CI 的 PostgreSQL 任务同时设置上述两个数据库变量，先执行迁移测试，再以 `-race -count=1 -v` 执行 `iamstore` 与 `tests/e2e`，覆盖认证事务、并发消费、故障重试与 HTTP 全流程。

@@ -117,6 +117,7 @@ jobs:
     env:
       GOWORK: off
       MIGRATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/backend_test?sslmode=disable
+      AUTH_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/backend_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -125,6 +126,10 @@ jobs:
           cache: true
       - name: Migration up/down/up and seed idempotency
         run: go test -count=1 ./db/migrations
+      - name: Authentication PostgreSQL integration tests
+        run: |
+          test -n "$AUTH_TEST_DATABASE_URL"
+          go test -race -count=1 -v ./internal/platform/database/iamstore ./tests/e2e
 
   docker-e2e:
     runs-on: ubuntu-latest

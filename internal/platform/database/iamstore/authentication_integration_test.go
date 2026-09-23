@@ -2,6 +2,8 @@ package iamstore_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -205,5 +207,116 @@ func TestExpiredRecoveryCodesCannotBeConsumed(t *testing.T) {
 	}
 	if e = repo.ConsumeCredential(ctx, user.ID, "challenge", security.Version, -1, "hash"); e == nil {
 		t.Fatal("expired recovery code accepted")
+	}
+}
+
+func TestPasswordUpdateAndCredentialInvalidationAreAtomic(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Postgres(t, 0)
+	q := dbgen.New(pool)
+	users := iamstore.New(q, pool)
+	repo := iamstore.NewAuthentication(q, pool)
+	user, err := users.Create(ctx, iam.CreateUserInput{Email: "atomic@example.com", Username: "atomic", Password: "old-hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	security, err := repo.Security(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiry := time.Now().Add(time.Hour)
+	security.PendingSecret = []byte("pending-ciphertext")
+	security.PendingExpiresAt = &expiry
+	if err = repo.SaveSecurity(ctx, user.ID, security, security.Version); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repo.Security(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fail the password write after invalidation, forcing the entire transaction back.
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_password_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected password write failure'; END $$;
+ CREATE TRIGGER reject_password_update BEFORE UPDATE OF password_hash ON users FOR EACH ROW EXECUTE FUNCTION reject_password_update()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = users.UpdateUserPassword(ctx, user.ID, "new-hash"); err == nil {
+		t.Fatal("injected failure hidden")
+	}
+	after, err := repo.Security(ctx, user.ID)
+	if err != nil || after.Version != before.Version || string(after.PendingSecret) != string(before.PendingSecret) {
+		t.Fatal("invalidation was not rolled back", err)
+	}
+	unchanged, err := users.FindByID(ctx, user.ID)
+	if err != nil || unchanged.PasswordHash != "old-hash" {
+		t.Fatal("password was not rolled back", err)
+	}
+	if _, err = pool.Exec(ctx, "DROP TRIGGER reject_password_update ON users"); err != nil {
+		t.Fatal(err)
+	}
+	if err = users.UpdateUserPassword(ctx, user.ID, "new-hash"); err != nil {
+		t.Fatal(err)
+	}
+	after, err = repo.Security(ctx, user.ID)
+	if err != nil || after.Version <= before.Version || len(after.PendingSecret) != 0 || after.PendingExpiresAt != nil {
+		t.Fatal("pending enrollment survived reset", err)
+	}
+	changed, err := users.FindByID(ctx, user.ID)
+	if err != nil || changed.PasswordHash != "new-hash" {
+		t.Fatal("password not updated", err)
+	}
+}
+
+func TestEmailPolicyAndProfileChangesSerialize(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Postgres(t, 0)
+	q := dbgen.New(pool)
+	users := iamstore.New(q, pool)
+	repo := iamstore.NewAuthentication(q, pool)
+	for i := range 20 {
+		user, err := users.Create(ctx, iam.CreateUserInput{Email: fmt.Sprintf("email-%d@example.com", i), Username: fmt.Sprintf("email-%d", i), Password: "hash"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, "UPDATE users SET email_verified_at=NOW() WHERE id=$1", user.ID); err != nil {
+			t.Fatal(err)
+		}
+		security, err := repo.Security(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		security.Mode = "email"
+		start := make(chan struct{})
+		results := make(chan error, 2)
+		go func() { <-start; results <- repo.SaveSecurity(ctx, user.ID, security, security.Version) }()
+		go func() {
+			<-start
+			_, err := users.UpdateUser(ctx, user.ID, iam.UpdateUserInput{Email: fmt.Sprintf("changed-%d@example.com", i), Username: user.Username})
+			results <- err
+		}()
+		close(start)
+		successes := 0
+		for range 2 {
+			err := <-results
+			if err == nil {
+				successes++
+			} else if !errors.Is(err, iam.ErrAuthenticationForbidden) {
+				t.Fatal(err)
+			}
+		}
+		if successes != 1 {
+			t.Fatalf("policy and address change both succeeded: %d", successes)
+		}
+		current, err := users.FindByID(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved, err := repo.Security(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if saved.Mode == "email" && current.EmailVerifiedAt == nil {
+			t.Fatal("concurrent operations stranded email login")
+		}
 	}
 }

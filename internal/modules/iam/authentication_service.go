@@ -93,6 +93,15 @@ func (s *AuthenticationService) Login(ctx context.Context, in LoginInput) (Login
 		if !security.TOTPEnabled {
 			return LoginResult{}, ErrInvalidCredentials
 		}
+		// A reset may have committed between password verification and reading
+		// the security version. Never bind old credentials to the new version.
+		current, e := s.base.users.FindByID(ctx, user.ID)
+		if e != nil {
+			return LoginResult{}, e
+		}
+		if !current.Active || current.PasswordHash != user.PasswordHash {
+			return LoginResult{}, ErrInvalidCredentials
+		}
 		challenge, e := s.challenges.Issue(ctx, Challenge{UserID: user.ID, Version: security.Version})
 		if e != nil {
 			return LoginResult{}, e
@@ -398,7 +407,9 @@ func (s *AuthenticationService) Disable(ctx context.Context, id string, proof Se
 		return e
 	}
 	if !security.TOTPEnabled {
-		return nil
+		// A previous attempt may have saved the disabled state before Redis
+		// revocation failed. A retry must still complete session revocation.
+		return s.base.RevokeAll(ctx, id)
 	} // Idempotent only after password verification.
 	if e = s.consumeProof(ctx, id, security, "", proof.Code, proof.RecoveryCode); e != nil {
 		return e

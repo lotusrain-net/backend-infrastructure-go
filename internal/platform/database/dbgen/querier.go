@@ -42,6 +42,7 @@ type Querier interface {
 	GrantRolePermission(ctx context.Context, arg GrantRolePermissionParams) error
 	InitializeAuthentication(ctx context.Context, bootstrapAdminUserID pgtype.UUID) (int64, error)
 	InsertAuthenticationConsumption(ctx context.Context, arg InsertAuthenticationConsumptionParams) error
+	InvalidatePasswordCredentials(ctx context.Context, userID pgtype.UUID) error
 	ListEnabledTaskSchedules(ctx context.Context) ([]ListEnabledTaskSchedulesRow, error)
 	ListFilteredAuditLogs(ctx context.Context, arg ListFilteredAuditLogsParams) ([]AuditLog, error)
 	ListPendingTaskOutboxMessages(ctx context.Context, limit int32) ([]ListPendingTaskOutboxMessagesRow, error)

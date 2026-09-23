@@ -40,3 +40,6 @@ DELETE FROM authentication_consumptions WHERE expires_at < NOW();
 
 -- name: SaveConsumedSecurityCredential :exec
 UPDATE user_security_settings SET last_totp_step=$2,recovery_hashes=$3,version=version+1 WHERE user_id=$1;
+
+-- name: InvalidatePasswordCredentials :exec
+UPDATE user_security_settings SET version=version+1, pending_secret=NULL, pending_expires_at=NULL WHERE user_id=$1;
