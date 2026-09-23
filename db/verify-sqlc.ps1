@@ -24,10 +24,10 @@ function Get-GeneratedHashes([string]$Root) {
 
 try {
     $tempDB = Join-Path $tempRoot "db"
-    $tempMigrations = Join-Path $tempDB "migrations"
+    $tempMigrations = Join-Path $tempRoot "pkg\migrations"
     $tempQueries = Join-Path $tempDB "queries"
     New-Item -ItemType Directory -Path $tempMigrations, $tempQueries -Force | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "migrations") -Filter "*.sql" -File |
+    Get-ChildItem -LiteralPath (Join-Path $repoRoot "pkg\migrations") -Filter "*.sql" -File |
         Copy-Item -Destination $tempMigrations
     Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "queries") -Filter "*.sql" -File |
         Copy-Item -Destination $tempQueries
@@ -38,8 +38,8 @@ try {
         throw "SQLC generation failed with exit code $LASTEXITCODE"
     }
 
-    $committedRoot = Join-Path $repoRoot "internal\platform\database\dbgen"
-    $generatedRoot = Join-Path $tempRoot "internal\platform\database\dbgen"
+    $committedRoot = Join-Path $repoRoot "pkg\platform\database\dbgen"
+    $generatedRoot = Join-Path $tempRoot "pkg\platform\database\dbgen"
     $committed = Get-GeneratedHashes $committedRoot
     $generated = Get-GeneratedHashes $generatedRoot
     $allFiles = @($committed.Keys + $generated.Keys | Sort-Object -Unique)

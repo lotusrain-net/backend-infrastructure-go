@@ -3,14 +3,14 @@ export type {
   ApiFieldErrors,
   PaginatedResponse,
   PaginationMeta,
-} from "@purplevoid/backend-infrastructure-web/api";
+} from "@lotusrain-net/backend-infrastructure-web/api";
 export type {
   AccountPreferences,
   ColorMode,
   FontScale,
   RadiusScale,
   ThemeName,
-} from "@purplevoid/backend-infrastructure-web/theme";
+} from "@lotusrain-net/backend-infrastructure-web/theme";
 
 export interface LoginRequest {
   email_code?: string;

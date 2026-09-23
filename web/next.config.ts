@@ -19,7 +19,7 @@ const apiProxyTarget = resolveAPIProxyTarget();
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  transpilePackages: ["@purplevoid/backend-infrastructure-web"],
+  transpilePackages: ["@lotusrain-net/backend-infrastructure-web"],
   turbopack: {
     root: process.cwd(),
   },

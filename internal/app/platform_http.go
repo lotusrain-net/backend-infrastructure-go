@@ -11,13 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	apperror "github.com/jyysy/backend-infrastructure-go/pkg/apikit"
-	requestcontext "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	apperror "github.com/lotusrain-net/backend-infrastructure-go/pkg/apikit"
+	requestcontext "github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/audit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	taskmodule "github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/task"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/httpserver/iamhttp"
 )
 
 type auditLister interface {

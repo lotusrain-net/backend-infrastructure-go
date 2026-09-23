@@ -30,7 +30,7 @@ foreach ($binary in @("api", "worker", "scheduler", "migrate", "seed-admin")) {
 Assert-True ($dockerfile -match '(?m)-o\s+/out/migrate\s+\./cmd/migrate') "Dockerfile must build the repository cmd/migrate command"
 Assert-True ($dockerfile -match '(?m)-o\s+/out/seed-admin\s+\./cmd/seed-admin') "Dockerfile must build the repository cmd/seed-admin command"
 Assert-True ($dockerfile -notmatch 'golang-migrate/migrate/.*/cmd/migrate') "Runtime migration must not be replaced by an external CLI build"
-Assert-True ($dockerfile -match '(?im)^COPY\s+.*db/migrations/\*\.sql\s+/app/migrations/?\s*$') "Dockerfile must copy only SQL migration artifacts"
+Assert-True ($dockerfile -match '(?im)^COPY\s+.*pkg/migrations/\*\.sql\s+/app/migrations/?\s*$') "Dockerfile must copy only SQL migration artifacts"
 Assert-True ($dockerfile -notmatch '(?im)^USER\s+(root|0)(:0)?\s*$') "Dockerfile must not switch the runtime back to root"
 
 $webDockerfile = Read-Required "web/Dockerfile"
@@ -260,7 +260,7 @@ foreach ($gate in @(
     'staticcheck@v0.7.0 ./...',
     'govulncheck@v1.6.0 ./...',
     './db/verify-sqlc.ps1',
-    'go test -count=1 ./db/migrations',
+    'go test -count=1 ./pkg/migrations',
     './scripts/docker-smoke.ps1'
 )) {
     Assert-True ($workflow.Contains($gate)) "CI gate missing: $gate"

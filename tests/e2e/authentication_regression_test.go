@@ -9,12 +9,12 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/authcache"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/authcrypto"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/iamstore"
-	"github.com/jyysy/backend-infrastructure-go/internal/testutil"
+	"github.com/lotusrain-net/backend-infrastructure-go/internal/testutil"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/authcache"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/authcrypto"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/database/dbgen"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/database/iamstore"
 	"github.com/redis/go-redis/v9"
 )
 

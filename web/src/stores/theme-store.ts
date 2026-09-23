@@ -7,9 +7,9 @@ import {
   resolveColorMode,
   themeTokenProperties,
   type AccountPreferences,
-} from "@purplevoid/backend-infrastructure-web/theme";
+} from "@lotusrain-net/backend-infrastructure-web/theme";
 
-export { createAppearancePreferences } from "@purplevoid/backend-infrastructure-web/theme";
+export { createAppearancePreferences } from "@lotusrain-net/backend-infrastructure-web/theme";
 
 const CACHE_PREFIX = "backend-infra-appearance";
 export type PreferenceSyncStatus = "idle" | "loading" | "syncing" | "synced" | "error";

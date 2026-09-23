@@ -2,7 +2,7 @@ import {
   ErrorState as PublicErrorState,
   zhCNPatternMessages,
   type ErrorStateProps as PublicErrorStateProps,
-} from "@purplevoid/backend-infrastructure-web/patterns";
+} from "@lotusrain-net/backend-infrastructure-web/patterns";
 
 export type ErrorStateProps = PublicErrorStateProps;
 

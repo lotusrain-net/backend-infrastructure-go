@@ -12,7 +12,7 @@ func TestSQLCConfigurationAndQueriesExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read sqlc.yaml: %v", err)
 	}
-	for _, fragment := range []string{"version: \"2\"", "engine: postgresql", "queries: queries", "schema: migrations", "package: dbgen"} {
+	for _, fragment := range []string{"version: \"2\"", "engine: postgresql", "queries: queries", "schema: ../pkg/migrations", "package: dbgen"} {
 		if !strings.Contains(string(config), fragment) {
 			t.Errorf("sqlc.yaml does not contain %q", fragment)
 		}

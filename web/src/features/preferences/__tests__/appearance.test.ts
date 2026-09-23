@@ -5,7 +5,7 @@ import {
   deriveAccentTokens,
   deriveThemeTokens,
   normalizeAccentColor,
-} from "@purplevoid/backend-infrastructure-web/theme";
+} from "@lotusrain-net/backend-infrastructure-web/theme";
 
 describe("appearance color utilities", () => {
   it("normalizes valid #RRGGBB input and rejects other values", () => {

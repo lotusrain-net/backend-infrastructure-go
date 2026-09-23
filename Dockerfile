@@ -40,7 +40,7 @@ COPY --from=build --chown=10001:10001 /out/worker /app/worker
 COPY --from=build --chown=10001:10001 /out/scheduler /app/scheduler
 COPY --from=build --chown=10001:10001 /out/migrate /app/migrate
 COPY --from=build --chown=10001:10001 /out/seed-admin /app/seed-admin
-COPY --chown=10001:10001 db/migrations/*.sql /app/migrations/
+COPY --chown=10001:10001 pkg/migrations/*.sql /app/migrations/
 
 USER 10001:10001
 EXPOSE 8080

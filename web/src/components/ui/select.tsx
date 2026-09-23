@@ -11,4 +11,4 @@ export {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from "@purplevoid/backend-infrastructure-web/ui/client";
+} from "@lotusrain-net/backend-infrastructure-web/ui/client";

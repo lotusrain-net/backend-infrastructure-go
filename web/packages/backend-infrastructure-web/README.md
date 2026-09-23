@@ -1,11 +1,11 @@
-# @purplevoid/backend-infrastructure-web
+# @lotusrain-net/backend-infrastructure-web
 
 Public, framework-neutral infrastructure for operations-console frontends.
 
-Import the API client from `@purplevoid/backend-infrastructure-web/api`, server-safe
-components from `@purplevoid/backend-infrastructure-web/ui`, interactive components
-from `@purplevoid/backend-infrastructure-web/ui/client`, and the optional token
-stylesheet from `@purplevoid/backend-infrastructure-web/styles.css`.
+Import the API client from `@lotusrain-net/backend-infrastructure-web/api`, server-safe
+components from `@lotusrain-net/backend-infrastructure-web/ui`, interactive components
+from `@lotusrain-net/backend-infrastructure-web/ui/client`, and the optional token
+stylesheet from `@lotusrain-net/backend-infrastructure-web/styles.css`.
 
 Business features, authentication stores, Next.js routing, and application providers
 remain private to the consuming application.

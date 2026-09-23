@@ -16,6 +16,8 @@ This repository is a clean Go implementation of reusable backend infrastructure.
 ## Package boundaries
 
 - `cmd` and `internal/bootstrap` own composition.
-- `internal/platform` owns infrastructure adapters.
-- `internal/modules` owns domain and application behavior.
-- `internal/shared` contains small cross-cutting contracts only.
+- `internal/app` and `internal/testutil` are private application assembly.
+- `pkg/platform` owns infrastructure adapters.
+- `pkg/modules` owns domain and application behavior.
+- `pkg/shared` contains small cross-cutting contracts only.
+- `pkg/config` and the other `pkg/*` packages form the public, importable surface.

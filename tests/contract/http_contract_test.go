@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/iamhttp"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/httpserver/iamhttp"
 )
 
 func TestHealthHTTPContractUsesSharedEnvelopeAndRequestID(t *testing.T) {

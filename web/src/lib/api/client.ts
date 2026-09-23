@@ -1,10 +1,10 @@
-import { ApiClient, zhCNApiMessages } from "@purplevoid/backend-infrastructure-web/api";
+import { ApiClient, zhCNApiMessages } from "@lotusrain-net/backend-infrastructure-web/api";
 import { queryClient } from "@/lib/query/client";
 import { clearAuthState } from "@/stores/auth-store";
 import { clearActiveThemeState } from "@/stores/theme-store";
 
-export { ApiClient, ApiError, withQuery } from "@purplevoid/backend-infrastructure-web/api";
-export type { ApiClientOptions, ApiRequestInit } from "@purplevoid/backend-infrastructure-web/api";
+export { ApiClient, ApiError, withQuery } from "@lotusrain-net/backend-infrastructure-web/api";
+export type { ApiClientOptions, ApiRequestInit } from "@lotusrain-net/backend-infrastructure-web/api";
 
 export const apiClient = new ApiClient({
   messages: zhCNApiMessages,

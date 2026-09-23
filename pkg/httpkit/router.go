@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jyysy/backend-infrastructure-go/pkg/apikit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/apikit"
 )
 
 // ReadinessChecker reports whether service dependencies are ready.

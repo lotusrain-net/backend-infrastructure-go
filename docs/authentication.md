@@ -67,7 +67,7 @@ TOTP 使用 RFC 6238、SHA-1、六位数字、三十秒周期，接受前后一�
 设置 `AUTH_TEST_DATABASE_URL` 后，数据库事务测试和认证 HTTP 集成测试使用随机 schema，结束时只清理自己的 schema：
 
 ```sh
-AUTH_TEST_DATABASE_URL='postgres://.../test?sslmode=disable' go test ./internal/platform/database/iamstore ./tests/e2e
+AUTH_TEST_DATABASE_URL='postgres://.../test?sslmode=disable' go test ./tests/integration ./tests/e2e
 ```
 
 `MIGRATION_TEST_DATABASE_URL` 用于既有迁移 up/down/up 测试，必须指向可丢弃的独立测试库。Redis Lua 测试使用 miniredis；SMTP 测试使用本地 TLS/STARTTLS 服务和证书。

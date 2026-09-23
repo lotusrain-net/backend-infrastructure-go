@@ -8,7 +8,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/jyysy/backend-infrastructure-go/internal/config"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/config"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/migrations"
 )
 
 type migrator interface {
@@ -41,9 +42,23 @@ func (r *migrationRuntime) Shutdown(context.Context) error {
 	return errors.Join(sourceErr, databaseErr)
 }
 func BuildMigrate(cfg config.Config, direction string) (*migrationRuntime, error) {
-	migrator, err := migrate.New(cfg.MigrationsSource, cfg.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("create migrator: %w", err)
+	var migrator migrator
+	if cfg.MigrationsSource != "" {
+		fileMigrator, err := migrate.New(cfg.MigrationsSource, cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("create migrator: %w", err)
+		}
+		migrator = fileMigrator
+	} else {
+		driver, err := migrations.Source()
+		if err != nil {
+			return nil, fmt.Errorf("create migration source: %w", err)
+		}
+		embeddedMigrator, err := migrate.NewWithSourceInstance("iofs", driver, cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("create migrator: %w", err)
+		}
+		migrator = embeddedMigrator
 	}
 	return &migrationRuntime{migrator: migrator, direction: direction}, nil
 }

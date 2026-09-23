@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
 )
 
 type auditedAuthentication struct {

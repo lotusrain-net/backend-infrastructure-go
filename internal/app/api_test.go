@@ -15,10 +15,10 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
-	"github.com/jyysy/backend-infrastructure-go/internal/config"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/httpserver/requestmeta"
-	httpserver "github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/config"
+	httpserver "github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/platform/httpserver/requestmeta"
 	"github.com/redis/go-redis/v9"
 )
 

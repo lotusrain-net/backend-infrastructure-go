@@ -14,7 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/jyysy/backend-infrastructure-go/pkg/httpkit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/httpkit"
 )
 
 func TestRequestIDAcceptsValidIncomingID(t *testing.T) {

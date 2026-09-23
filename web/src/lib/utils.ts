@@ -1,1 +1,1 @@
-export { cn } from "@purplevoid/backend-infrastructure-web/ui";
+export { cn } from "@lotusrain-net/backend-infrastructure-web/ui";

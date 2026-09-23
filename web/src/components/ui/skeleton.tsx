@@ -1,1 +1,1 @@
-export { Skeleton } from "@purplevoid/backend-infrastructure-web/ui";
+export { Skeleton } from "@lotusrain-net/backend-infrastructure-web/ui";

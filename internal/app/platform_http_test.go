@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/audit"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	taskmodule "github.com/jyysy/backend-infrastructure-go/internal/modules/task"
-	"github.com/jyysy/backend-infrastructure-go/pkg/pagination"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/audit"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
+	taskmodule "github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/task"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/pagination"
 )
 
 type auditListStub struct{ query audit.Query }

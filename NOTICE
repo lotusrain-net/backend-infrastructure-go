@@ -1,6 +1,6 @@
-Backend Infrastructure Go and @purplevoid/backend-infrastructure-web
+Backend Infrastructure Go and @lotusrain-net/backend-infrastructure-web
 
-Copyright 2026 purplevoid contributors.
+Copyright 2026 lotusrain-net contributors.
 
 The web package contains generic operations-console primitives and patterns
 maintained in this repository. The package does not redistribute the private

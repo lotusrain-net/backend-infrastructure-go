@@ -1,1 +1,1 @@
-export { Badge } from "@purplevoid/backend-infrastructure-web/ui";
+export { Badge } from "@lotusrain-net/backend-infrastructure-web/ui";

@@ -4,15 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version (only v0.1.0 is supported)
+        description: Release version (semantic tag, for example v0.2.0)
         required: true
-        default: v0.1.0
-        type: choice
-        options:
-          - v0.1.0
+        default: v0.2.0
+        type: string
 
 concurrency:
-  group: release-v0.1.0
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -35,7 +33,7 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          test "$VERSION" = "v0.1.0"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$GITHUB_REF" = "refs/heads/main"
       - uses: actions/setup-go@v5
         with:
@@ -70,8 +68,15 @@ jobs:
         working-directory: web
         env:
           API_PROXY_TARGET: http://127.0.0.1:8080
+          VERSION: ${{ inputs.version }}
         run: |
-          test "$(node -p 'require("./packages/backend-infrastructure-web/package.json").version')" = "0.1.0"
+          set -euo pipefail
+          npm_name="$(node -p 'require("./packages/backend-infrastructure-web/package.json").name')"
+          npm_version="$(node -p 'require("./packages/backend-infrastructure-web/package.json").version')"
+          test "$npm_version" = "${VERSION#v}"
+          tarball_base="${npm_name#@}"
+          tarball_base="${tarball_base//\//-}"
+          tarball="${tarball_base}-${npm_version}.tgz"
           npm ci
           npm run lint
           npm run typecheck
@@ -82,10 +87,10 @@ jobs:
           consumer_tmp="$PWD/.release-consumer-tmp"
           mkdir -p "$consumer_tmp"
           TMPDIR="$consumer_tmp" npm run test:package-consumers
-          mapfile -t tarballs < <(find "$consumer_tmp" -type f -name 'purplevoid-backend-infrastructure-web-0.1.0.tgz' -print)
+          mapfile -t tarballs < <(find "$consumer_tmp" -type f -name "$tarball" -print)
           test "${#tarballs[@]}" -eq 1
           mkdir -p release-artifacts
-          mv "${tarballs[0]}" release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
+          mv "${tarballs[0]}" "release-artifacts/$tarball"
           rm -rf "$consumer_tmp"
       - name: Finalize verified npm artifact
         working-directory: web
@@ -93,9 +98,17 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test -f release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
+          npm_name="$(node -p 'require("./packages/backend-infrastructure-web/package.json").name')"
+          npm_version="$(node -p 'require("./packages/backend-infrastructure-web/package.json").version')"
+          tarball_base="${npm_name#@}"
+          tarball_base="${tarball_base//\//-}"
+          tarball="${tarball_base}-${npm_version}.tgz"
+          test -f "release-artifacts/$tarball"
           printf '%s\n' "$RELEASE_SHA" > release-artifacts/SOURCE_COMMIT
-          (cd release-artifacts && sha256sum purplevoid-backend-infrastructure-web-0.1.0.tgz > SHA256SUMS)
+          printf '%s\n' "$npm_name" > release-artifacts/PACKAGE_NAME
+          printf '%s\n' "$npm_version" > release-artifacts/PACKAGE_VERSION
+          printf '%s\n' "$tarball" > release-artifacts/TARBALL_NAME
+          (cd release-artifacts && sha256sum "$tarball" > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: backend-infrastructure-web-${{ github.sha }}
@@ -122,7 +135,7 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test "$VERSION" = "v0.1.0"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$GITHUB_REF" = "refs/heads/main"
 
           verify_remote_tag() {
@@ -176,7 +189,11 @@ jobs:
           set -euo pipefail
           test "$(cat release-artifacts/SOURCE_COMMIT)" = "$RELEASE_SHA"
           (cd release-artifacts && sha256sum --check SHA256SUMS)
-          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://registry.npmjs.org/@purplevoid%2Fbackend-infrastructure-web/0.1.0")"
+          package="$(cat release-artifacts/PACKAGE_NAME)"
+          encoded="${package/\//%2F}"
+          # Only a new package name needs an owner bootstrap. Unpublished
+          # versions of an existing package are handled by the OIDC publisher.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://registry.npmjs.org/$encoded")"
           case "$status" in
             200) printf 'required=false\n' >> "$GITHUB_OUTPUT" ;;
             404) printf 'required=true\n' >> "$GITHUB_OUTPUT" ;;
@@ -184,12 +201,11 @@ jobs:
           esac
       - name: Approve first npm publication
         if: steps.npm.outputs.required == 'true'
-        env:
-          PACKAGE: '@purplevoid/backend-infrastructure-web'
-          TARBALL: purplevoid-backend-infrastructure-web-0.1.0.tgz
         working-directory: release-artifacts
         run: |
           set -euo pipefail
+          PACKAGE="$(cat PACKAGE_NAME)"
+          TARBALL="$(cat TARBALL_NAME)"
           echo "::error::First publication requires one interactive owner publish; no npm token is accepted by this workflow."
           echo "::error::Download this run's artifact, verify SHA256SUMS, then run: npm publish $TARBALL --access public"
           echo "::error::Afterward configure $PACKAGE Trusted Publishing for release.yml and environment release, then rerun this workflow."
@@ -219,7 +235,7 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test "$VERSION" = "v0.1.0"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$GITHUB_REF" = "refs/heads/main"
           test "$(cat release-artifacts/SOURCE_COMMIT)" = "$RELEASE_SHA"
           (cd release-artifacts && sha256sum --check SHA256SUMS)
@@ -238,26 +254,26 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          test "$VERSION" = "v0.1.0"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           verifier="$(mktemp -d)"
           trap 'rm -rf "$verifier"' EXIT
           cd "$verifier"
           go mod init example.com/release-verifier >/dev/null
-          cp "$GITHUB_WORKSPACE/tests/consumer/consumer.go" .
+          cp "$GITHUB_WORKSPACE/tests/consumer/"*.go .
           # checkout persists the read-only workflow credential in the local
           # Git config; expose that config to VCS commands launched by Go.
           export GIT_CONFIG_NOSYSTEM=true
           export GIT_CONFIG_GLOBAL="$GITHUB_WORKSPACE/.git/config"
           export GOWORK=off
-          export GOPRIVATE='github.com/jyysy/*'
-          export GONOSUMDB='github.com/jyysy/*'
+          export GOPRIVATE='github.com/lotusrain-net/*'
+          export GONOSUMDB='github.com/lotusrain-net/*'
           export GOPROXY=direct
           export GOSUMDB=off
           export GOTOOLCHAIN=local
-          go get "github.com/jyysy/backend-infrastructure-go@$VERSION"
+          go get "github.com/lotusrain-net/backend-infrastructure-go@$VERSION"
           go mod tidy
           go test ./...
-          resolved="$(go list -m -f '{{.Version}}' github.com/jyysy/backend-infrastructure-go)"
+          resolved="$(go list -m -f '{{.Version}}' github.com/lotusrain-net/backend-infrastructure-go)"
           test "$resolved" = "$VERSION"
       - uses: actions/setup-node@v4
         with:
@@ -270,14 +286,14 @@ jobs:
           npm install --global npm@11.5.1
           test "$(npm --version)" = "11.5.1"
       - name: Publish verified npm tarball with OIDC
-        env:
-          PACKAGE: '@purplevoid/backend-infrastructure-web'
-          VERSION: '0.1.0'
-          TARBALL: release-artifacts/purplevoid-backend-infrastructure-web-0.1.0.tgz
         run: |
           set -euo pipefail
+          PACKAGE="$(cat release-artifacts/PACKAGE_NAME)"
+          VERSION="$(cat release-artifacts/PACKAGE_VERSION)"
+          TARBALL="release-artifacts/$(cat release-artifacts/TARBALL_NAME)"
+          encoded="${PACKAGE/\//%2F}"
           expected_integrity="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | openssl base64 -A)"
-          metadata="$(curl --fail --silent --show-error "https://registry.npmjs.org/@purplevoid%2Fbackend-infrastructure-web/$VERSION" 2>/dev/null || true)"
+          metadata="$(curl --fail --silent --show-error "https://registry.npmjs.org/$encoded/$VERSION" 2>/dev/null || true)"
           published_integrity=""
           if [ -n "$metadata" ]; then
             published_integrity="$(node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync(0, "utf8"))["dist"]?.integrity; if (typeof value !== "string" || value.length === 0) process.exit(1); process.stdout.write(value)' <<<"$metadata")"
@@ -294,11 +310,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-          PACKAGE: '@purplevoid/backend-infrastructure-web'
         run: |
           set -euo pipefail
+          PACKAGE="$(cat release-artifacts/PACKAGE_NAME)"
+          npm_version="$(cat release-artifacts/PACKAGE_VERSION)"
           test "$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')" = "$GITHUB_SHA"
-          test "$(npm view "$PACKAGE@0.1.0" version)" = "0.1.0"
+          test "$(npm view "$PACKAGE@$npm_version" version)" = "$npm_version"
           if gh release view "$VERSION" >/dev/null 2>&1; then
             test "$(gh release view "$VERSION" --json tagName --jq .tagName)" = "$VERSION"
           else
