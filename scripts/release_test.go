@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -111,3 +112,43 @@ curl() {
 		})
 	}
 }
+
+// TestReleasePublishPassesExplicitTarballPath guards the OIDC publish step
+// against a regression where the tarball is handed to npm as a bare relative
+// path. npm reads a value like "release-artifacts/pkg.tgz" as a GitHub
+// shorthand (owner/repo) and shells out to git, failing before it ever reaches
+// the registry.
+func TestReleasePublishPassesExplicitTarballPath(t *testing.T) {
+	raw, err := os.ReadFile("../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	const stepName = "Publish verified npm tarball with OIDC"
+	var script string
+	for _, step := range workflow.Jobs["publish"].Steps {
+		if step.Name == stepName {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatalf("release workflow is missing the %q step", stepName)
+	}
+	// Allow an explicitly relative (./) or absolute path, but never a bare
+	// relative one that npm could mistake for a git spec.
+	explicit := regexp.MustCompile(`(?m)^\s*TARBALL="(?:\./|\$PWD/|\$\{PWD\}/|/)`)
+	if !explicit.MatchString(script) {
+		t.Fatalf("publish step must pass npm an explicitly-qualified tarball path:\n%s", script)
+	}
+}
+

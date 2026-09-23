@@ -32,7 +32,7 @@ bootstrap (`internal/bootstrap`), and integration fixtures
 
 ## npm
 
-The public package is `@lotusrain-net/backend-infrastructure-web@0.2.1`.
+The public package is `@lotusrain-net/backend-infrastructure-web@0.2.2`.
 
 | Export | Scope |
 | --- | --- |

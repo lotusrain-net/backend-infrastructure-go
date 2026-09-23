@@ -295,7 +295,10 @@ jobs:
           set -euo pipefail
           PACKAGE="$(cat release-artifacts/PACKAGE_NAME)"
           VERSION="$(cat release-artifacts/PACKAGE_VERSION)"
-          TARBALL="release-artifacts/$(cat release-artifacts/TARBALL_NAME)"
+          # A bare relative path such as release-artifacts/x.tgz is read by npm
+          # as a GitHub shorthand (owner/repo) and shelled out to git. Keep the
+          # explicit ./ so npm treats the argument as a local tarball.
+          TARBALL="./release-artifacts/$(cat release-artifacts/TARBALL_NAME)"
           encoded="${PACKAGE/\//%2F}"
           expected_integrity="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | openssl base64 -A)"
           metadata="$(curl --fail --silent --show-error "https://registry.npmjs.org/$encoded/$VERSION" 2>/dev/null || true)"
