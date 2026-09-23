@@ -190,9 +190,10 @@ jobs:
           test "$(cat release-artifacts/SOURCE_COMMIT)" = "$RELEASE_SHA"
           (cd release-artifacts && sha256sum --check SHA256SUMS)
           package="$(cat release-artifacts/PACKAGE_NAME)"
-          version="$(cat release-artifacts/PACKAGE_VERSION)"
           encoded="${package/\//%2F}"
-          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://registry.npmjs.org/$encoded/$version")"
+          # Only a new package name needs an owner bootstrap. Unpublished
+          # versions of an existing package are handled by the OIDC publisher.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' "https://registry.npmjs.org/$encoded")"
           case "$status" in
             200) printf 'required=false\n' >> "$GITHUB_OUTPUT" ;;
             404) printf 'required=true\n' >> "$GITHUB_OUTPUT" ;;
@@ -258,7 +259,7 @@ jobs:
           trap 'rm -rf "$verifier"' EXIT
           cd "$verifier"
           go mod init example.com/release-verifier >/dev/null
-          cp "$GITHUB_WORKSPACE/tests/consumer/consumer.go" .
+          cp "$GITHUB_WORKSPACE/tests/consumer/"*.go .
           # checkout persists the read-only workflow credential in the local
           # Git config; expose that config to VCS commands launched by Go.
           export GIT_CONFIG_NOSYSTEM=true
