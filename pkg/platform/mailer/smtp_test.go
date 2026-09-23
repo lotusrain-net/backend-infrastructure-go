@@ -71,15 +71,21 @@ func TestSMTPTLSAuthenticationAndTimeout(t *testing.T) {
 	for _, tc := range []struct {
 		name                   string
 		auth, stall, untrusted bool
+		timeout                time.Duration
 		want                   error
-	}{{"success", false, false, false, nil}, {"auth", true, false, false, ErrAuthentication}, {"timeout", false, true, false, ErrTimeout}, {"certificate", false, false, true, ErrTLS}} {
+	}{
+		{"success", false, false, false, 5 * time.Second, nil},
+		{"auth", true, false, false, 5 * time.Second, ErrAuthentication},
+		{"timeout", false, true, false, 100 * time.Millisecond, ErrTimeout},
+		{"certificate", false, false, true, 5 * time.Second, ErrTLS},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			addr, tlsConfig := smtpTestServer(t, tc.auth, tc.stall)
 			if tc.untrusted {
 				tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 			}
 			host, port, _ := net.SplitHostPort(addr)
-			m := New(Config{Enabled: true, Host: host, Port: port, Username: "sender", Password: "password", From: "noreply@example.com", TLSMode: "tls", Timeout: 100 * time.Millisecond, TLSConfig: tlsConfig}, nil, nil)
+			m := New(Config{Enabled: true, Host: host, Port: port, Username: "sender", Password: "password", From: "noreply@example.com", TLSMode: "tls", Timeout: tc.timeout, TLSConfig: tlsConfig}, nil, nil)
 			e := m.SendCode(context.Background(), "u@example.com", "register", "123456")
 			if !errors.Is(e, tc.want) {
 				t.Fatalf("got %v, want %v", e, tc.want)
