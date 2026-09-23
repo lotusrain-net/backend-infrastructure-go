@@ -1,4 +1,4 @@
-import { ApiError } from "@purplevoid/backend-infrastructure-web/api";
+import { ApiError } from "@lotusrain-net/backend-infrastructure-web/api";
 
 const responseMessages: Record<string, string> = {
   "invalid credentials": "账号、密码或验证码不正确，请检查后重试。",

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiError, zhCNApiMessages } from "@purplevoid/backend-infrastructure-web/api";
+import { ApiClient, ApiError, zhCNApiMessages } from "@lotusrain-net/backend-infrastructure-web/api";
 import { formatApiError } from "../error-messages";
 
 describe("Chinese API errors", () => {
