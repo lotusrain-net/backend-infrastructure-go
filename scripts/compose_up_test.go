@@ -37,3 +37,21 @@ func TestComposeUpGeneratesIndependentAuthenticationSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestDeliveryVerifierSuppliesEphemeralAuthenticationSecretsToCompose(t *testing.T) {
+	raw, err := os.ReadFile("verify-delivery.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, required := range []string{
+		"delivery-verification-key-not-for-deployment",
+		"delivery-verification-pepper-not-for-deployment",
+		"SetEnvironmentVariable(\"AUTHENTICATION_KEY\", $previousAuthenticationKey, \"Process\")",
+		"SetEnvironmentVariable(\"AUTHENTICATION_PEPPER\", $previousAuthenticationPepper, \"Process\")",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("delivery verifier must contain %q", required)
+		}
+	}
+}
