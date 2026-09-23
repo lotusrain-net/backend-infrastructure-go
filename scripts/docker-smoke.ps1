@@ -9,7 +9,8 @@ $compose = Join-Path $root "deployments/compose.yml"
 $environment = Join-Path $root $EnvFile
 $arguments = @("compose", "--project-name", $ProjectName, "--env-file", $environment, "-f", $compose)
 $overriddenEnvironment = @(
-    "POSTGRES_PASSWORD", "JWT_SECRET", "ADMIN_PASSWORD", "SCHEDULER_REFRESH_INTERVAL",
+    "POSTGRES_PASSWORD", "JWT_SECRET", "AUTHENTICATION_KEY", "AUTHENTICATION_PEPPER",
+    "ADMIN_PASSWORD", "SCHEDULER_REFRESH_INTERVAL",
     "E2E_BASE_URL", "E2E_ADMIN_EMAIL", "E2E_ADMIN_PASSWORD"
 )
 $previousEnvironment = @{}
@@ -31,6 +32,8 @@ function New-RandomHex([int]$ByteCount) {
 
 $env:POSTGRES_PASSWORD = "smoke-" + (New-RandomHex 24)
 $env:JWT_SECRET = New-RandomHex 32
+$env:AUTHENTICATION_KEY = New-RandomHex 32
+$env:AUTHENTICATION_PEPPER = New-RandomHex 32
 $env:ADMIN_PASSWORD = "smoke-" + (New-RandomHex 16)
 $env:SCHEDULER_REFRESH_INTERVAL = "1s"
 

@@ -55,3 +55,21 @@ func TestDeliveryVerifierSuppliesEphemeralAuthenticationSecretsToCompose(t *test
 		}
 	}
 }
+
+func TestDockerSmokeSuppliesEphemeralAuthenticationSecretsToCompose(t *testing.T) {
+	raw, err := os.ReadFile("docker-smoke.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, required := range []string{
+		`"AUTHENTICATION_KEY", "AUTHENTICATION_PEPPER"`,
+		`$env:AUTHENTICATION_KEY = New-RandomHex 32`,
+		`$env:AUTHENTICATION_PEPPER = New-RandomHex 32`,
+		`SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")`,
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("docker-smoke.ps1 must contain %q", required)
+		}
+	}
+}
