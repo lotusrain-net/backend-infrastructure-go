@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const DefaultRecoveryCodeTTL = 30 * 24 * time.Hour
@@ -13,14 +14,14 @@ type AuthenticationService struct {
 	recoveryTTL time.Duration
 	base        *Service
 	repo        AuthenticationRepository
-	codes       EmailCodes
+	codes       VerificationCodeStore
 	mail        Mailer
 	crypto      SecondFactorCrypto
 	challenges  Challenges
 	now         func() time.Time
 }
 
-func NewAuthenticationService(base *Service, repo AuthenticationRepository, codes EmailCodes, mailer Mailer, crypto SecondFactorCrypto, challenges Challenges, recoveryTTL ...time.Duration) *AuthenticationService {
+func NewAuthenticationService(base *Service, repo AuthenticationRepository, codes VerificationCodeStore, mailer Mailer, crypto SecondFactorCrypto, challenges Challenges, recoveryTTL ...time.Duration) *AuthenticationService {
 	service := &AuthenticationService{base: base, repo: repo, codes: codes, mail: mailer, crypto: crypto, challenges: challenges, now: time.Now}
 	service.recoveryTTL = DefaultRecoveryCodeTTL
 	if len(recoveryTTL) > 0 && recoveryTTL[0] > 0 {
@@ -82,11 +83,10 @@ func (s *AuthenticationService) Login(ctx context.Context, in LoginInput) (Login
 		if in.EmailCode == "" {
 			return LoginResult{}, ErrEmailCodeRequired
 		}
-		receipt, e := s.codes.Verify(ctx, user.Email, "login", in.EmailCode)
-		if e != nil {
-			return LoginResult{}, e
+		if !emailCodePattern.MatchString(in.EmailCode) {
+			return LoginResult{}, &FieldValidationError{Fields: map[string]string{"email_code": "must contain six digits"}}
 		}
-		if e = s.codes.Consume(ctx, user.Email, "login", receipt); e != nil {
+		if e = s.codes.VerifyAndConsume(ctx, user.Email, EmailCodeLogin, in.EmailCode); e != nil {
 			return LoginResult{}, e
 		}
 	case "totp":
@@ -112,8 +112,18 @@ func (s *AuthenticationService) Login(ctx context.Context, in LoginInput) (Login
 	return LoginResult{TokenPair: pair}, e
 }
 func (s *AuthenticationService) VerifyLogin(ctx context.Context, in VerifyInput) (TokenPair, error) {
+	fields := map[string]string{}
+	if in.ChallengeID == "" {
+		fields["challenge_id"] = "required"
+	}
 	if (in.Code == "") == (in.RecoveryCode == "") {
-		return TokenPair{}, ErrInvalidCode
+		fields["code"] = "provide either code or recovery_code"
+	}
+	if in.Code != "" && !emailCodePattern.MatchString(in.Code) {
+		fields["code"] = "must contain six digits"
+	}
+	if len(fields) > 0 {
+		return TokenPair{}, &FieldValidationError{Fields: fields}
 	}
 	challenge, e := s.challenges.Attempt(ctx, in.ChallengeID)
 	if e != nil {
@@ -153,22 +163,30 @@ func (s *AuthenticationService) RequestEmailCode(ctx context.Context, email, pur
 	if purpose == "register" && (state.InitializedAt == nil || !state.RegistrationEnabled) {
 		return ErrAuthenticationForbidden
 	}
-	if purpose != "register" && purpose != "login" {
-		return ErrInvalidUserInput
+	fields := map[string]string{}
+	codePurpose := EmailCodePurpose(purpose)
+	if codePurpose != EmailCodeRegister && codePurpose != EmailCodeLogin {
+		fields["purpose"] = "must be register or login"
 	}
 	email, e = normalizeEmail(email)
 	if e != nil {
-		return e
+		fields["email"] = "must be a valid email address"
 	}
-	code, e := s.codes.Issue(ctx, email, purpose, ip)
+	if len(fields) > 0 {
+		return &FieldValidationError{Fields: fields}
+	}
+	code, e := s.codes.Issue(ctx, email, codePurpose, ip)
 	if e != nil {
 		return e
 	}
 	// Delivery does not look up users: existing and unknown addresses take the
 	// same transport path, including before initialization. Login still checks
 	// credentials, initialization and the user's policy before accepting a code.
-	_ = s.mail.SendCode(ctx, email, purpose, code)
-	return nil
+	e = s.mail.SendCode(ctx, email, codePurpose, code)
+	if errors.Is(e, ErrMailRejected) {
+		return nil
+	}
+	return e
 }
 func (s *AuthenticationService) Register(ctx context.Context, in RegisterInput) (User, error) {
 	state, e := s.repo.Authentication(ctx)
@@ -179,12 +197,19 @@ func (s *AuthenticationService) Register(ctx context.Context, in RegisterInput) 
 		return User{}, ErrAuthenticationForbidden
 	}
 	email, e := normalizeEmail(in.Email)
+	fields := map[string]string{}
 	if e != nil {
-		return User{}, e
+		fields["email"] = "must be a valid email address"
 	}
 	in.Username = strings.TrimSpace(in.Username)
-	if len(in.Username) == 0 || len(in.Username) > 100 || len(in.Password) < 12 || len(in.Password) > 1024 {
-		return User{}, ErrInvalidUserInput
+	if n := utf8.RuneCountInString(in.Username); n == 0 || n > 100 {
+		fields["username"] = "must contain 1 to 100 characters"
+	}
+	if n := utf8.RuneCountInString(in.Password); n < 12 || n > 1024 {
+		fields["password"] = "must contain 12 to 1024 characters"
+	}
+	if len(fields) > 0 {
+		return User{}, &FieldValidationError{Fields: fields}
 	}
 	if len(state.AllowedEmailDomains) > 0 {
 		domain := strings.SplitN(email, "@", 2)[1]
@@ -203,7 +228,10 @@ func (s *AuthenticationService) Register(ctx context.Context, in RegisterInput) 
 		if in.EmailCode == "" {
 			return User{}, ErrEmailCodeRequired
 		}
-		r, e := s.codes.Verify(ctx, email, "register", in.EmailCode)
+		if !emailCodePattern.MatchString(in.EmailCode) {
+			return User{}, &FieldValidationError{Fields: map[string]string{"email_code": "must contain six digits"}}
+		}
+		r, e := s.codes.Verify(ctx, email, EmailCodeRegister, in.EmailCode)
 		if e != nil {
 			return User{}, e
 		}
@@ -218,7 +246,7 @@ func (s *AuthenticationService) Register(ctx context.Context, in RegisterInput) 
 		return User{}, e
 	}
 	if receipt != nil {
-		_ = s.codes.Consume(ctx, email, "register", *receipt)
+		_ = s.codes.Consume(ctx, email, EmailCodeRegister, *receipt)
 	} // PostgreSQL receipt is authoritative even if Redis cleanup fails.
 	return user, nil
 }
@@ -270,7 +298,7 @@ func (s *AuthenticationService) PutSecurity(ctx context.Context, id, mode string
 		return SecuritySettings{}, ErrAuthenticationForbidden
 	} // Disable requires a fresh second-factor proof.
 	if mode == "email" && user.EmailVerifiedAt == nil {
-		return SecuritySettings{}, ErrAuthenticationForbidden
+		return SecuritySettings{}, ErrEmailNotVerified
 	}
 	if mode == "totp" && !security.TOTPEnabled {
 		return SecuritySettings{}, ErrAuthenticationForbidden
@@ -428,4 +456,55 @@ func (s *AuthenticationService) Disable(ctx context.Context, id string, proof Se
 		return e
 	}
 	return s.base.RevokeAll(ctx, id)
+}
+
+// RequestEmailVerification only delivers to the authenticated account's current mailbox.
+func (s *AuthenticationService) RequestEmailVerification(ctx context.Context, id, ip string) error {
+	user, err := s.emailVerificationUser(ctx, id)
+	if err != nil {
+		return err
+	}
+	code, err := s.codes.Issue(ctx, user.Email, EmailCodeVerify, ip)
+	if err != nil {
+		return err
+	}
+	if err = s.mail.SendCode(ctx, user.Email, EmailCodeVerify, code); errors.Is(err, ErrMailRejected) {
+		return ErrAuthenticationUnavailable
+	}
+	return err
+}
+
+func (s *AuthenticationService) VerifyEmail(ctx context.Context, id, code string) (User, error) {
+	user, err := s.emailVerificationUser(ctx, id)
+	if err != nil {
+		return User{}, err
+	}
+	if !emailCodePattern.MatchString(code) {
+		return User{}, &FieldValidationError{Fields: map[string]string{"email_code": "must contain six digits"}}
+	}
+	receipt, err := s.codes.Verify(ctx, user.Email, EmailCodeVerify, code)
+	if err != nil {
+		return User{}, err
+	}
+	verified, err := s.repo.VerifyEmail(ctx, id, user.Email, receipt)
+	if err != nil {
+		return User{}, err
+	}
+	// The durable receipt prevents replay even if Redis cleanup fails.
+	_ = s.codes.Consume(ctx, user.Email, EmailCodeVerify, receipt)
+	return verified, nil
+}
+
+func (s *AuthenticationService) emailVerificationUser(ctx context.Context, id string) (User, error) {
+	if err := s.base.requireInitialized(ctx); err != nil {
+		return User{}, err
+	}
+	user, err := s.base.users.FindByID(ctx, id)
+	if err != nil {
+		return User{}, err
+	}
+	if !user.Active {
+		return User{}, ErrInactiveUser
+	}
+	return user, nil
 }

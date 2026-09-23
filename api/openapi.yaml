@@ -787,13 +787,15 @@ paths:
       operationId: requestEmailCode
       summary: >-
         Request a short-lived one-time code. Unknown addresses and delivery
-        failures return the same accepted response.
+        or recipient failures return the same accepted response; dependency
+        failures return 503.
       security: []
       responses:
         '202':
           description: >-
             Request a short-lived one-time code. Unknown addresses and delivery
-            failures return the same accepted response.
+            or recipient failures return the same accepted response; dependency
+            failures return 503.
           headers:
             Cache-Control:
               $ref: '#/components/headers/Cache-Control'
@@ -823,6 +825,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       requestBody:
         required: true
         content:
@@ -875,6 +879,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       requestBody:
         required: true
         content:
@@ -1025,6 +1031,86 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AuthenticationSettings'
+  /api/v1/users/me/email/verification-code:
+    post:
+      operationId: requestMyEmailVerificationCode
+      summary: Send a verification code to the authenticated user's current email
+      description: Uses the independent verify_email purpose. No recipient is accepted from the client. Requires an active account and initialized installation.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '202':
+          description: Code sent; valid for ten minutes, resend after sixty seconds.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailCodeResultEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          description: Cooldown or rate limit
+          headers:
+            Retry-After:
+              description: Seconds until retry
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/users/me/email/verify:
+    post:
+      operationId: verifyMyEmail
+      summary: Verify the authenticated user's current email
+      description: Atomically marks the current email verified and consumes the receipt. Does not change the security policy. Invalid, expired or replayed codes return 422 with data.email_code; concurrent email changes return 409.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email_code]
+              properties:
+                email_code:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+      responses:
+        '200':
+          description: Updated user including email_verified_at
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/users/me/security:
     get:
       operationId: getMySecurity

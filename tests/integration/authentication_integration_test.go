@@ -320,3 +320,52 @@ func TestEmailPolicyAndProfileChangesSerialize(t *testing.T) {
 		}
 	}
 }
+
+func TestExistingEmailVerificationTransaction(t *testing.T) {
+	ctx := context.Background()
+	pool := testutil.Postgres(t, 0)
+	q := dbgen.New(pool)
+	users := iamstore.New(q, pool)
+	repo := iamstore.NewAuthentication(q, pool)
+	user, err := users.Create(ctx, iam.CreateUserInput{Email: "old@example.com", Username: "verify", Password: "hashed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := iam.CodeReceipt{ID: "verify-receipt", ExpiresAt: time.Now().Add(time.Minute)}
+	if _, err = repo.VerifyEmail(ctx, user.ID, "stale@example.com", r); !errors.Is(err, iam.ErrSecurityConflict) {
+		t.Fatal("stale email accepted", err)
+	}
+	user, err = repo.VerifyEmail(ctx, user.ID, user.Email, r)
+	if err != nil || user.EmailVerifiedAt == nil {
+		t.Fatal(user, err)
+	}
+	if _, err = repo.VerifyEmail(ctx, user.ID, user.Email, r); !errors.Is(err, iam.ErrInvalidCode) {
+		t.Fatal("replay accepted", err)
+	}
+	user, err = users.UpdateUser(ctx, user.ID, iam.UpdateUserInput{Email: "new@example.com", Username: "verify"})
+	if err != nil || user.EmailVerifiedAt != nil {
+		t.Fatal(user, err)
+	}
+	r.ID = "second-receipt"
+	if _, err = repo.VerifyEmail(ctx, user.ID, "old@example.com", r); !errors.Is(err, iam.ErrSecurityConflict) {
+		t.Fatal("old email accepted", err)
+	}
+	r.ExpiresAt = time.Now().Add(-time.Minute)
+	if _, err = repo.VerifyEmail(ctx, user.ID, user.Email, r); !errors.Is(err, iam.ErrInvalidCode) {
+		t.Fatal("expired receipt accepted", err)
+	}
+	r.ExpiresAt = time.Now().Add(time.Minute)
+	var wg sync.WaitGroup
+	var successes atomic.Int32
+	for range 8 {
+		wg.Go(func() {
+			if _, e := repo.VerifyEmail(ctx, user.ID, user.Email, r); e == nil {
+				successes.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	if successes.Load() != 1 {
+		t.Fatal("concurrent receipt successes", successes.Load())
+	}
+}

@@ -33,10 +33,10 @@ type recordingMailer struct {
 	codes map[string]string
 }
 
-func (m *recordingMailer) SendCode(_ context.Context, email, purpose, code string) error {
+func (m *recordingMailer) SendCode(_ context.Context, email string, purpose iam.EmailCodePurpose, code string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.codes[email+":"+purpose] = code
+	m.codes[email+":"+string(purpose)] = code
 	return nil
 }
 func (m *recordingMailer) code(email, purpose string) string {
@@ -150,6 +150,35 @@ func TestAuthenticationHTTPWorkflow(t *testing.T) {
 	}
 	admin, _ := call("POST", "/api/v1/auth/login", login("admin@example.com"), "", 200)
 	adminToken := admin["access_token"].(string)
+
+	// Bootstrap admins can verify their existing mailbox without registration.
+	call("POST", "/api/v1/users/me/email/verification-code", nil, "", 401)
+	call("POST", "/api/v1/users/me/email/verify", map[string]string{"email_code": "123456"}, "", 401)
+	_, unverifiedResponse := call("PUT", "/api/v1/users/me/security", map[string]string{"mode": "email"}, adminToken, 403)
+	if !strings.Contains(unverifiedResponse.Body.String(), "email not verified") {
+		t.Fatal("missing actionable error", unverifiedResponse.Body.String())
+	}
+	call("POST", "/api/v1/auth/email-code", map[string]string{"email": "admin@example.com", "purpose": "verify_email"}, "", 422)
+	call("POST", "/api/v1/users/me/email/verification-code", nil, adminToken, 202)
+	call("POST", "/api/v1/users/me/email/verification-code", nil, adminToken, 429)
+	// A login-purpose code cannot verify a profile mailbox.
+	call("POST", "/api/v1/auth/email-code", map[string]string{"email": "admin@example.com", "purpose": "login"}, "", 202)
+	verificationCode := mail.code("admin@example.com", "verify_email")
+	loginCode := mail.code("admin@example.com", "login")
+	if loginCode != verificationCode {
+		call("POST", "/api/v1/users/me/email/verify", map[string]string{"email_code": loginCode}, adminToken, 422)
+	}
+	verified, verificationResponse := call("POST", "/api/v1/users/me/email/verify", map[string]string{"email_code": verificationCode}, adminToken, 200)
+	if verified["email_verified_at"] == nil || verificationResponse.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("verification not persisted", verified)
+	}
+	call("POST", "/api/v1/users/me/email/verify", map[string]string{"email_code": verificationCode}, adminToken, 422)
+	call("PUT", "/api/v1/users/me/security", map[string]string{"mode": "email"}, adminToken, 200)
+	call("POST", "/api/v1/auth/login", login("admin@example.com"), "", 422)
+	adminEmailLogin := login("admin@example.com")
+	adminEmailLogin["email_code"] = loginCode
+	call("POST", "/api/v1/auth/login", adminEmailLogin, "", 200)
+	call("PUT", "/api/v1/users/me/security", map[string]string{"mode": "default"}, adminToken, 200)
 	// Initialization survives a new repository instance.
 	state, e := iamstore.NewAuthentication(dbgen.New(pool), pool).Authentication(ctx)
 	if e != nil || state.InitializedAt == nil {

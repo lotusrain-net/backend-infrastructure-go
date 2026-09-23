@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { queryClient } from "@/lib/query/client";
 import { authKeys, getCurrentUser } from "./api";
+import { useAuthStore } from "@/stores/auth-store";
 import type {
   BasicAuthSettings,
   RegisterRequest,
@@ -11,46 +12,54 @@ import type {
   TokenPair,
   TOTPEnrollment,
   User,
+  EmailCodeRequest,
+  EmailCodeResponse,
+  VerifyLoginChallengeRequest,
 } from "@/types/api";
+
+export function requestEmailCode(
+  input: EmailCodeRequest | { email: string; purpose: "verify_email" },
+) {
+  if (input.purpose === "verify_email") {
+    return apiClient.request<EmailCodeResponse>(
+      "/api/v1/users/me/email/verification-code",
+      { method: "POST" },
+    );
+  }
+  return apiClient.request<EmailCodeResponse>("/api/v1/auth/email-code", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+}
+export function register(input: RegisterRequest) {
+  return apiClient.request<User>("/api/v1/auth/register", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+}
+export async function verifyLoginChallenge(input: VerifyLoginChallengeRequest) {
+  await apiClient.request<TokenPair>("/api/v1/auth/login/totp/verify", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+  const user = await getCurrentUser();
+  queryClient.setQueryData(authKeys.currentUser(), user);
+  return user;
+}
 
 export function useEmailCodeMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: (input: { email: string; purpose: "register" | "login" }) =>
-      apiClient.request<{ sent: boolean; resend_after_seconds: number }>(
-        "/api/v1/auth/email-code",
-        { method: "POST", body: input, requiresAuth: false },
-      ),
+    mutationFn: requestEmailCode,
   });
 }
 export function useRegisterMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: (input: RegisterRequest) =>
-      apiClient.request<User>("/api/v1/auth/register", {
-        method: "POST",
-        body: input,
-        requiresAuth: false,
-      }),
+    mutationFn: register,
   });
 }
 export function useVerifyLoginMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: async (input: {
-      challenge_id: string;
-      code?: string;
-      recovery_code?: string;
-    }) => {
-      await apiClient.request<TokenPair>("/api/v1/auth/login/totp/verify", {
-        method: "POST",
-        body: input,
-        requiresAuth: false,
-      });
-      const user = await getCurrentUser();
-      queryClient.setQueryData(authKeys.currentUser(), user);
-      return user;
-    },
+    mutationFn: verifyLoginChallenge,
   });
 }
 export function useBasicAuthQuery(enabled = true) {
@@ -86,6 +95,25 @@ export function useSecurityMutations() {
   const cache = useQueryClient();
   const invalidate = () =>
     cache.invalidateQueries({ queryKey: ["auth", "security"] });
+  const verifyEmail = useMutation({
+    gcTime: 0,
+    mutationFn: (email_code: string) =>
+      apiClient.request<User>("/api/v1/users/me/email/verify", {
+        method: "POST", body: { email_code },
+      }),
+    onSuccess: (verified) => {
+      const current = useAuthStore.getState().user;
+      if (current?.id === verified.id) {
+        const updated = {
+          ...current,
+          email: verified.email,
+          email_verified_at: verified.email_verified_at,
+        };
+        useAuthStore.getState().setCurrentUser(updated);
+        cache.setQueryData(authKeys.currentUser(), updated);
+      }
+    },
+  });
   const save = useMutation({
     mutationFn: (mode: SecurityMode) =>
       apiClient.request<SecuritySettings>("/api/v1/users/me/security", {
@@ -120,5 +148,5 @@ export function useSecurityMutations() {
       ),
     onSuccess: invalidate,
   });
-  return { save, enroll, confirm, disable };
+  return { save, enroll, confirm, disable, verifyEmail };
 }

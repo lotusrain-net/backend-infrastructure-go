@@ -161,3 +161,36 @@ func writeSecurityProofError(w http.ResponseWriter, err error) {
 	}
 	writeIAMError(w, err)
 }
+
+func (h handler) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w)
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if address := audit.RequestMetadataFromContext(r.Context()).IPAddress; address != nil {
+		ip = address.String()
+	}
+	if err := h.cfg.Authentication.RequestEmailVerification(r.Context(), iam.Subject(r.Context()), ip); err != nil {
+		writeIAMError(w, err)
+		return
+	}
+	apperror.Write(w, http.StatusAccepted, map[string]any{"sent": true, "resend_after_seconds": 60})
+}
+
+func (h handler) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w)
+	var in struct {
+		EmailCode string `json:"email_code"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	user, err := h.cfg.Authentication.VerifyEmail(r.Context(), iam.Subject(r.Context()), in.EmailCode)
+	if err != nil {
+		if errors.Is(err, iam.ErrInvalidCode) {
+			apperror.WriteError(w, apperror.Validation(map[string]string{"email_code": "invalid or expired credential"}))
+		} else {
+			writeIAMError(w, err)
+		}
+		return
+	}
+	apperror.Write(w, http.StatusOK, user)
+}

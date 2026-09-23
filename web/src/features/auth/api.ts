@@ -6,8 +6,8 @@ import { clearActiveThemeState } from "@/stores/theme-store";
 import type {
   AuthenticatedUser,
   LoginRequest,
-  TokenPair,
-  TOTPChallenge,
+  LoginResponse,
+  LoginResult,
 } from "@/types/api";
 
 export const authKeys = {
@@ -28,8 +28,8 @@ export const currentUserQueryOptions = () =>
 
 export async function login(
   input: LoginRequest,
-): Promise<AuthenticatedUser | TOTPChallenge> {
-  const result = await apiClient.request<TokenPair | TOTPChallenge>(
+): Promise<LoginResult> {
+  const result = await apiClient.request<LoginResponse>(
     "/api/v1/auth/login",
     {
       method: "POST",

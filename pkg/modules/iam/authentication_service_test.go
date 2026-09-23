@@ -55,31 +55,31 @@ func (authPasswords) Hash(string) (string, error)      { return "hashed", nil }
 func (authPasswords) Verify(p, h string) (bool, error) { return p == "correct-password", nil }
 
 type authCodesStub struct {
-	EmailCodes
+	VerificationCodeStore
 	issued   int
 	verified int
 	consumed int
 }
 
-func (c *authCodesStub) Issue(context.Context, string, string, string) (string, error) {
+func (c *authCodesStub) Issue(context.Context, string, EmailCodePurpose, string) (string, error) {
 	c.issued++
 	return "123456", nil
 }
-func (c *authCodesStub) Verify(_ context.Context, _, _, code string) (CodeReceipt, error) {
+func (c *authCodesStub) Verify(_ context.Context, _ string, _ EmailCodePurpose, code string) (CodeReceipt, error) {
 	c.verified++
 	if code != "123456" {
 		return CodeReceipt{}, ErrInvalidCode
 	}
 	return CodeReceipt{ID: "receipt", ExpiresAt: time.Now().Add(time.Minute)}, nil
 }
-func (c *authCodesStub) Consume(context.Context, string, string, CodeReceipt) error {
+func (c *authCodesStub) Consume(context.Context, string, EmailCodePurpose, CodeReceipt) error {
 	c.consumed++
 	return nil
 }
 
 type authMailStub struct{}
 
-func (authMailStub) SendCode(context.Context, string, string, string) error { return nil }
+func (authMailStub) SendCode(context.Context, string, EmailCodePurpose, string) error { return nil }
 func testAuthentication(t *testing.T, repo *authRepoStub) (*AuthenticationService, *authCodesStub) {
 	t.Helper()
 	jwt, _ := NewJWTManager([]byte("01234567890123456789012345678901"), "test", time.Minute)
@@ -180,8 +180,8 @@ func TestBootstrapRejectsPreviouslyIssuedSessions(t *testing.T) {
 
 type unavailableMailer struct{}
 
-func (unavailableMailer) SendCode(context.Context, string, string, string) error {
-	return errors.New("SMTP unavailable")
+func (unavailableMailer) SendCode(context.Context, string, EmailCodePurpose, string) error {
+	return ErrMailRejected
 }
 func TestCodeDeliveryFailureAndUnknownMailboxHaveSameOutcome(t *testing.T) {
 	now := time.Now()
@@ -227,5 +227,60 @@ func TestLoginDoesNotBindOldPasswordToNewSecurityVersion(t *testing.T) {
 	_, err := service.Login(context.Background(), LoginInput{Email: "u@example.com", Password: "correct-password"})
 	if !errors.Is(err, ErrInvalidCredentials) || challenges.issued != 0 {
 		t.Fatal("password changed during login but challenge was issued", err)
+	}
+}
+
+func (c *authCodesStub) VerifyAndConsume(ctx context.Context, email string, purpose EmailCodePurpose, code string) error {
+	receipt, err := c.Verify(ctx, email, purpose, code)
+	if err != nil {
+		return err
+	}
+	return c.Consume(ctx, email, purpose, receipt)
+}
+
+type verificationRepoStub struct {
+	*authRepoStub
+	marked int
+	err    error
+}
+
+func (r *verificationRepoStub) VerifyEmail(_ context.Context, id, email string, receipt CodeReceipt) (User, error) {
+	if r.err != nil {
+		return User{}, r.err
+	}
+	r.marked++
+	now := time.Now()
+	return User{ID: id, Email: email, Active: true, EmailVerifiedAt: &now}, nil
+}
+func TestExistingAccountEmailVerification(t *testing.T) {
+	now := time.Now()
+	s, codes := testAuthentication(t, &authRepoStub{state: AuthenticationState{InitializedAt: &now}})
+	r := &verificationRepoStub{authRepoStub: s.repo.(*authRepoStub)}
+	s.repo = r
+	ctx := context.Background()
+	if err := s.RequestEmailVerification(ctx, "user", "ip"); err != nil || codes.issued != 1 {
+		t.Fatal(err, codes.issued)
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "bad"); err == nil || codes.verified != 0 {
+		t.Fatal("malformed code accepted", err)
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "654321"); !errors.Is(err, ErrInvalidCode) || r.marked != 0 {
+		t.Fatal(err)
+	}
+	r.err = ErrSecurityConflict
+	if _, err := s.VerifyEmail(ctx, "user", "123456"); !errors.Is(err, ErrSecurityConflict) || codes.consumed != 0 {
+		t.Fatal("failed transaction consumed code", err)
+	}
+	r.err = nil
+	user, err := s.VerifyEmail(ctx, "user", "123456")
+	if err != nil || user.EmailVerifiedAt == nil || r.marked != 1 || codes.consumed != 1 {
+		t.Fatal(user, err)
+	}
+	s.base.users = authUsersStub{user: User{ID: "user", Email: "u@example.com", Active: false}}
+	if err := s.RequestEmailVerification(ctx, "user", "ip"); err == nil {
+		t.Fatal("inactive user sent code")
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "123456"); err == nil {
+		t.Fatal("inactive user verified email")
 	}
 }

@@ -60,7 +60,7 @@ func TestEmailCodeErrorsAndRetryAfter(t *testing.T) {
 	for _, tc := range []struct {
 		err    error
 		status int
-	}{{iam.ErrAuthenticationForbidden, 403}, {&iam.RateLimitError{RetryAfter: 60}, 429}, {nil, 202}} {
+	}{{iam.ErrAuthenticationForbidden, 403}, {iam.ErrAuthenticationUnavailable, 503}, {&iam.FieldValidationError{Fields: map[string]string{"email": "invalid"}}, 422}, {&iam.RateLimitError{RetryAfter: 60}, 429}, {nil, 202}} {
 		r := chi.NewRouter()
 		RegisterRoutes(r, nil, nil, HTTPConfig{Authentication: authenticationStub{err: tc.err}})
 		w := httptest.NewRecorder()
@@ -119,6 +119,53 @@ func TestSecurityProofErrorsAreDistinctFromExpiredSessions(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+func (s authenticationStub) RequestEmailVerification(context.Context, string, string) error {
+	return s.err
+}
+func (s authenticationStub) VerifyEmail(context.Context, string, string) (iam.User, error) {
+	return iam.User{}, s.err
+}
+func TestEmailVerificationRoutes(t *testing.T) {
+	jwt, _ := iam.NewJWTManager([]byte("01234567890123456789012345678901"), "test", time.Hour)
+	token, _ := jwt.Issue("user")
+	for _, tc := range []struct {
+		path, body string
+		err        error
+		status     int
+	}{
+		{"verification-code", "", nil, 202},
+		{"verification-code", "", iam.ErrAuthenticationUnavailable, 503},
+		{"verification-code", "", &iam.RateLimitError{RetryAfter: 60}, 429},
+		{"verify", `{"email_code":"123456"}`, nil, 200},
+		{"verify", `{"email_code":"000000"}`, iam.ErrInvalidCode, 422},
+		{"verify", `{"email_code":"123456","email":"other@example.com"}`, nil, 422},
+	} {
+		r := chi.NewRouter()
+		RegisterRoutes(r, nil, jwt, HTTPConfig{Authentication: authenticationStub{err: tc.err}})
+		for _, session := range []string{"", token} {
+			request := httptest.NewRequest("POST", "/api/v1/users/me/email/"+tc.path, strings.NewReader(tc.body))
+			if session != "" {
+				request.Header.Set("Authorization", "Bearer "+session)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, request)
+			want := tc.status
+			if session == "" {
+				want = 401
+			}
+			if w.Code != want {
+				t.Fatalf("%s: %d want %d: %s", tc.path, w.Code, want, w.Body.String())
+			}
+			if session != "" && w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("cacheable email verification")
+			}
+			if want == 422 && tc.err == iam.ErrInvalidCode && !strings.Contains(w.Body.String(), `"email_code":"invalid or expired credential"`) {
+				t.Fatal(w.Body.String())
+			}
 		}
 	}
 }

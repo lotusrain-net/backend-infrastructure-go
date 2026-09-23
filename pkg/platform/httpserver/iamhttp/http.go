@@ -47,6 +47,8 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 			r.Use(Authenticate(jwt))
 			r.Get("/users/me", h.me)
 			if cfg.Authentication != nil {
+				r.Post("/users/me/email/verification-code", h.requestEmailVerification)
+				r.Post("/users/me/email/verify", h.verifyEmail)
 				r.Get("/users/me/security", h.security)
 				r.Put("/users/me/security", h.putSecurity)
 				r.Post("/users/me/security/totp/enroll", h.enroll)
@@ -466,6 +468,11 @@ func queryInt(r *http.Request, name string, fallback int) int {
 }
 
 func writeIAMError(w http.ResponseWriter, err error) {
+	var fields *iam.FieldValidationError
+	if errors.As(err, &fields) {
+		apperror.WriteError(w, apperror.Validation(fields.Fields))
+		return
+	}
 	var limited *iam.RateLimitError
 	if errors.As(err, &limited) {
 		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
@@ -473,6 +480,12 @@ func writeIAMError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, iam.ErrEmailNotVerified):
+		apperror.WriteError(w, apperror.New(403, "email not verified", 403, err))
+	case errors.Is(err, iam.ErrAuthenticationUnavailable):
+		apperror.WriteError(w, apperror.ServiceUnavailable("authentication service unavailable", nil))
+	case errors.Is(err, iam.ErrDuplicateIdentity):
+		apperror.WriteError(w, apperror.Conflict("identity conflict", nil))
 	case errors.Is(err, iam.ErrEmailCodeRequired):
 		apperror.WriteError(w, apperror.Validation(map[string]string{"email_code": "required"}))
 	case errors.Is(err, iam.ErrInvalidCode), errors.Is(err, iam.ErrInvalidCredentials), errors.Is(err, iam.ErrInvalidRefreshToken):

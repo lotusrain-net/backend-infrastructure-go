@@ -8,12 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useSecurityMutations, useSecurityQuery } from "./security-api";
 import type { SecurityMode, TOTPEnrollment } from "@/types/api";
+import { useAuthStore } from "@/stores/auth-store";
+import { EmailCode, validEmailCode } from "./email-code";
 const options: { value: SecurityMode; label: string }[] = [
   { value: "default", label: "default" },
   { value: "email", label: "启用邮箱二次验证" },
   { value: "totp", label: "启用一次性代码二次验证" },
 ];
 export function SecurityControls() {
+  const user = useAuthStore((state) => state.user);
   const query = useSecurityQuery();
   const mutations = useSecurityMutations();
   const [selection, setSelection] = useState<SecurityMode | null>(null);
@@ -48,6 +51,7 @@ export function SecurityControls() {
       mutations.enroll.reset();
       mutations.confirm.reset();
       mutations.disable.reset();
+      mutations.verifyEmail.reset();
     }
   }
   async function choose(mode: SecurityMode) {
@@ -56,11 +60,16 @@ export function SecurityControls() {
     setRecoveryCodes([]);
     setPassword("");
     setCode("");
+    setMessage("");
     if (mode === "totp" && !query.data?.totp_enabled) return;
     if (query.data?.totp_enabled && mode !== "totp") return;
+    if (mode === "email" && !user?.email_verified_at) return;
     await perform(async () => {
-      await mutations.save.mutateAsync(mode);
-      setSelection(null);
+      try {
+        await mutations.save.mutateAsync(mode);
+      } finally {
+        setSelection(null);
+      }
       setMessage("两步验证设置已保存。");
     });
   }
@@ -85,6 +94,35 @@ export function SecurityControls() {
         disabled={pending || query.isPending || !!query.error}
       />
       {query.error && <p role="alert">无法读取安全设置，请稍后重试。</p>}
+      {selected === "email" && !user?.email_verified_at && !disabling && (
+        <div className="space-y-3">
+          <p className="text-[length:var(--text-body-sm)]">
+            请先验证邮箱 {user?.email}，验证成功后将启用邮箱二次验证。
+          </p>
+          <EmailCode
+            email={user?.email ?? ""}
+            purpose="verify_email"
+            value={code}
+            onChange={setCode}
+            disabled={pending}
+          />
+          <Button
+            type="button"
+            disabled={pending || !validEmailCode(code)}
+            onClick={() => perform(async () => {
+              await mutations.verifyEmail.mutateAsync(code);
+              try {
+                await mutations.save.mutateAsync("email");
+              } finally {
+                setSelection(null);
+              }
+              setMessage("邮箱已验证，邮箱二次验证已启用。");
+            })}
+          >
+            {pending ? "正在验证…" : "验证并启用邮箱二次验证"}
+          </Button>
+        </div>
+      )}
       {((selected === "totp" &&
         !query.data?.totp_enabled &&
         !enrollment &&

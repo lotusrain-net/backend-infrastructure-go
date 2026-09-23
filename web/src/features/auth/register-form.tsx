@@ -1,142 +1,33 @@
 "use client";
-import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { validEmail } from "./email-code";
-import {
-  requiresEmailVerification,
-  VerificationDialog,
-} from "./verification-dialog";
+import { requiresEmailVerification, VerificationDialog } from "./verification-dialog";
+import { authPageHref } from "./navigation";
+import { applyAuthFormError } from "./form-errors";
 import type { RegisterRequest } from "@/types/api";
 import { useRegisterMutation } from "./security-api";
-export function RegisterForm() {
-  const router = useRouter();
-  const register = useRegisterMutation();
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [verification, setVerification] = useState<RegisterRequest | null>(
-    null,
-  );
-  const pending = useRef(false);
-  const [message, setMessage] = useState("");
-  async function submitRegistration(input: RegisterRequest) {
-    try {
-      await register.mutateAsync(input);
-      setPassword("");
-      setVerification(null);
-      router.replace("/login?registered=1");
-    } finally {
-      register.reset();
-    }
-  }
-  return (
-    <>
-      <form
-        className="space-y-5"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          if (pending.current || register.isPending || verification) return;
-          setMessage("");
-          if (!validEmail(email) || !username.trim() || password.length < 12) {
-            setMessage("请填写有效邮箱、用户名及至少 12 位密码。");
-            return;
-          }
-          const input = {
-            username: username.trim(),
-            email: email.trim(),
-            password,
-          };
-          pending.current = true;
-          try {
-            await submitRegistration(input);
-          } catch (error) {
-            if (requiresEmailVerification(error)) {
-              setVerification(input);
-            } else {
-              setMessage(
-                error instanceof Error
-                  ? error.message
-                  : "注册失败，请稍后重试。",
-              );
-            }
-          } finally {
-            pending.current = false;
-          }
-        }}
-      >
-        <h1 className="text-[length:var(--text-heading)] font-semibold">
-          创建账号
-        </h1>
-        <div className="space-y-2">
-          <Label htmlFor="register-username">用户名</Label>
-          <Input
-            id="register-username"
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            maxLength={100}
-            required
-            disabled={register.isPending || Boolean(verification)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="register-email">邮箱</Label>
-          <Input
-            id="register-email"
-            type="email"
-            value={email}
-            onChange={(event) => {
-              setEmail(event.target.value);
-            }}
-            autoComplete="email"
-            required
-            disabled={register.isPending || Boolean(verification)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="register-password">密码</Label>
-          <Input
-            id="register-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="new-password"
-            minLength={12}
-            maxLength={1024}
-            required
-            disabled={register.isPending || Boolean(verification)}
-          />
-        </div>
-        {message && <p role="alert">{message}</p>}
-        <Button
-          className="w-full"
-          type="submit"
-          disabled={register.isPending || Boolean(verification)}
-        >
-          {register.isPending ? "正在注册…" : "注册"}
-        </Button>
-        <Link href="/login" className="block text-center text-sm underline">
-          返回登录
-        </Link>
-      </form>
-      {verification && (
-        <VerificationDialog
-          method="email"
-          purpose="register"
-          email={verification.email}
-          onVerify={async ({ code }) => {
-            await submitRegistration({ ...verification, email_code: code });
-          }}
-          onCancel={() => {
-            setVerification(null);
-            setMessage("");
-          }}
-        />
-      )}
-    </>
-  );
+type RegisterValues = RegisterRequest & { confirm_password: string };
+export function RegisterForm({ nextPath }: { nextPath?: string }) {
+  const router = useRouter(); const register = useRegisterMutation();
+  const form = useForm<RegisterValues>({ defaultValues: { username: "", email: "", password: "", confirm_password: "" } });
+  const [verification, setVerification] = useState<RegisterRequest | null>(null); const [pending, setPending] = useState(false);
+  async function submitRegistration(input: RegisterRequest) { try { await register.mutateAsync(input); form.resetField("password"); form.resetField("confirm_password"); setVerification(null); router.replace(authPageHref("/login", nextPath, true)); } finally { register.reset(); } }
+  const onSubmit = form.handleSubmit(async (values) => { if (pending || register.isPending || verification) return; form.clearErrors(); const input: RegisterRequest = { username: values.username.trim(), email: values.email.trim(), password: values.password }; setPending(true); try { await submitRegistration(input); } catch (error) { if (requiresEmailVerification(error)) setVerification(input); else applyAuthFormError(error, form, ["username", "email", "password"]); } finally { setPending(false); } });
+  return <><Form {...form}><form className="space-y-5" onSubmit={(event) => void onSubmit(event)} noValidate>
+    <h1 className="text-[length:var(--text-heading)] font-semibold">创建账号</h1>
+    <FormField control={form.control} name="username" rules={{ required: "请输入用户名。", maxLength: { value: 100, message: "用户名不能超过 100 个字符。" } }} render={({ field }) => <FormItem><FormLabel>用户名</FormLabel><FormControl><Input {...field} autoComplete="username" maxLength={100} disabled={Boolean(verification) || register.isPending} /></FormControl><FormMessage /></FormItem>} />
+    <FormField control={form.control} name="email" rules={{ required: "请输入邮箱。", validate: (value) => validEmail(value) || "请输入有效邮箱。" }} render={({ field }) => <FormItem><FormLabel>邮箱</FormLabel><FormControl><Input {...field} type="email" autoComplete="email" disabled={Boolean(verification) || register.isPending} /></FormControl><FormMessage /></FormItem>} />
+    <FormField control={form.control} name="password" rules={{ required: "请输入密码。", minLength: { value: 12, message: "密码至少 12 位。" } }} render={({ field }) => <FormItem><FormLabel>密码</FormLabel><FormControl><Input {...field} type="password" autoComplete="new-password" minLength={12} maxLength={1024} disabled={Boolean(verification) || register.isPending} /></FormControl><FormMessage /></FormItem>} />
+    <FormField control={form.control} name="confirm_password" rules={{ required: "请确认密码。", validate: (value) => value === form.getValues("password") || "两次输入的密码不一致。" }} render={({ field }) => <FormItem><FormLabel>确认密码</FormLabel><FormControl><Input {...field} type="password" autoComplete="new-password" disabled={Boolean(verification) || register.isPending} /></FormControl><FormMessage /></FormItem>} />
+    {form.formState.errors.root?.message ? <Alert variant="destructive"><AlertDescription>{form.formState.errors.root.message}</AlertDescription></Alert> : null}
+    <Button className="w-full" type="submit" disabled={register.isPending || Boolean(verification)}>{register.isPending ? "正在注册…" : "注册"}</Button>
+    <Link href={authPageHref("/login", nextPath)} className="block text-center text-sm underline">返回登录</Link>
+  </form></Form>{verification ? <VerificationDialog method="email" purpose="register" email={verification.email} onVerify={async ({ code }) => submitRegistration({ ...verification, email_code: code })} onCancel={() => { setVerification(null); form.clearErrors(); }} /> : null}</>;
 }
