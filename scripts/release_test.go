@@ -152,3 +152,41 @@ func TestReleasePublishPassesExplicitTarballPath(t *testing.T) {
 	}
 }
 
+// TestReleaseVerificationPollsForNpmPropagation guards against a regression
+// where the release fails spuriously because npm acknowledges the publish
+// before its read replicas serve the new version. The final verification must
+// retry the registry read instead of reading once and giving up.
+func TestReleaseVerificationPollsForNpmPropagation(t *testing.T) {
+	raw, err := os.ReadFile("../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	const stepName = "Verify published artifacts and create GitHub release"
+	var script string
+	for _, step := range workflow.Jobs["publish"].Steps {
+		if step.Name == stepName {
+			script = step.Run
+		}
+	}
+	if script == "" {
+		t.Fatalf("release workflow is missing the %q step", stepName)
+	}
+	if !regexp.MustCompile(`for .*seq 1`).MatchString(script) ||
+		!regexp.MustCompile(`npm view`).MatchString(script) ||
+		!regexp.MustCompile(`(?m)^\s*sleep `).MatchString(script) {
+		t.Fatalf("final verification must poll npm view with backoff before failing:\n%s", script)
+	}
+}
+
+

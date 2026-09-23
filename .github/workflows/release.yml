@@ -323,7 +323,18 @@ jobs:
           PACKAGE="$(cat release-artifacts/PACKAGE_NAME)"
           npm_version="$(cat release-artifacts/PACKAGE_VERSION)"
           test "$(git ls-remote origin "refs/tags/$VERSION^{}" | awk 'NR == 1 { print $1 }')" = "$GITHUB_SHA"
-          test "$(npm view "$PACKAGE@$npm_version" version)" = "$npm_version"
+          # npm acknowledges a publish before its read replicas serve the new
+          # version, so a single immediate read races propagation. Poll until
+          # the just-published version is visible instead of failing spuriously.
+          published_version=""
+          for _ in $(seq 1 30); do
+            published_version="$(npm view "$PACKAGE@$npm_version" version 2>/dev/null || true)"
+            if [ "$published_version" = "$npm_version" ]; then
+              break
+            fi
+            sleep 10
+          done
+          test "$published_version" = "$npm_version"
           if gh release view "$VERSION" >/dev/null 2>&1; then
             test "$(gh release view "$VERSION" --json tagName --jq .tagName)" = "$VERSION"
           else
