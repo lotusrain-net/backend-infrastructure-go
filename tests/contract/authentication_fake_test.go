@@ -74,3 +74,10 @@ func TestSettingsContractRejectsBootstrapMutation(t *testing.T) {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
+
+func (a contractAuthentication) RequestEmailVerification(context.Context, string, string) error {
+	return nil
+}
+func (a contractAuthentication) VerifyEmail(context.Context, string, string) (iam.User, error) {
+	return a.app.user.User, nil
+}

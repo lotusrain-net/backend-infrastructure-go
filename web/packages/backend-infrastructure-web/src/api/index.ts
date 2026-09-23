@@ -49,6 +49,7 @@ export const zhCNApiMessages: Readonly<ApiMessages> = {
 };
 
 export interface ApiClientOptions {
+  formatError?: (error: ApiError) => ApiError;
   baseURL?: string;
   credentials?: RequestCredentials;
   fetch?: typeof globalThis.fetch;
@@ -77,6 +78,7 @@ export class ApiError extends Error {
 }
 
 export class ApiClient {
+  private readonly formatError?: ApiClientOptions["formatError"];
   private readonly configuredFetch?: typeof globalThis.fetch;
   private readonly baseURL: string;
   private readonly credentials: RequestCredentials;
@@ -86,6 +88,7 @@ export class ApiClient {
   private inFlightRefresh: Promise<void> | null = null;
 
   constructor(options: ApiClientOptions = {}) {
+    this.formatError = options.formatError;
     this.configuredFetch = options.fetch;
     if (!this.configuredFetch && typeof globalThis.fetch !== "function") {
       throw new Error("ApiClient requires a fetch implementation.");
@@ -222,13 +225,14 @@ export class ApiClient {
       fallback ?? envelope?.msg ?? defaultErrorMessage(status, this.messages);
     const code = envelope?.code ?? status;
     const details = envelope?.data;
-    return new ApiError(
+    const error = new ApiError(
       message,
       status,
       code,
       details,
       extractFieldErrors(details),
     );
+    return this.formatError?.(error) ?? error;
   }
 }
 

@@ -16,7 +16,7 @@ export function EmailCode({
   disabled = false,
 }: {
   email: string;
-  purpose: "register" | "login";
+  purpose: "register" | "login" | "verify_email";
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
@@ -53,7 +53,9 @@ export function EmailCode({
       if (error instanceof ApiError && error.status === 429)
         setSeconds(error.retryAfterSeconds ?? 60);
       setError(
-        error instanceof Error ? error.message : "发送失败，请稍后重试。",
+        error instanceof ApiError && error.status === 503
+          ? "验证码邮件暂时无法发送，请稍后重试或联系管理员检查邮件服务。"
+          : error instanceof Error ? error.message : "发送失败，请稍后重试。",
       );
     } finally {
       pending.current = false;

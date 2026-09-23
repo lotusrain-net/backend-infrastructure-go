@@ -31,7 +31,17 @@ export function Profile() {
                 label="显示名"
                 value={user?.display_name || user?.username || "-"}
               />
-              <Detail label="邮箱" value={user?.email || "-"} />
+              <Detail
+                label="邮箱"
+                value={
+                  <span className="flex flex-wrap items-center gap-2">
+                    {user?.email || "-"}
+                    <Badge variant={user?.email_verified_at ? "success" : "warning"}>
+                      {user?.email_verified_at ? "已验证" : "未验证"}
+                    </Badge>
+                  </span>
+                }
+              />
               <Detail
                 label="账号状态"
                 value={

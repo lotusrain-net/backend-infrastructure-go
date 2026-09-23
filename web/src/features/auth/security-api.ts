@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { queryClient } from "@/lib/query/client";
 import { authKeys, getCurrentUser } from "./api";
+import { useAuthStore } from "@/stores/auth-store";
 import type {
   BasicAuthSettings,
   RegisterRequest,
@@ -16,7 +17,15 @@ import type {
   VerifyLoginChallengeRequest,
 } from "@/types/api";
 
-export function requestEmailCode(input: EmailCodeRequest) {
+export function requestEmailCode(
+  input: EmailCodeRequest | { email: string; purpose: "verify_email" },
+) {
+  if (input.purpose === "verify_email") {
+    return apiClient.request<EmailCodeResponse>(
+      "/api/v1/users/me/email/verification-code",
+      { method: "POST" },
+    );
+  }
   return apiClient.request<EmailCodeResponse>("/api/v1/auth/email-code", {
     method: "POST", body: input, requiresAuth: false,
   });
@@ -86,6 +95,25 @@ export function useSecurityMutations() {
   const cache = useQueryClient();
   const invalidate = () =>
     cache.invalidateQueries({ queryKey: ["auth", "security"] });
+  const verifyEmail = useMutation({
+    gcTime: 0,
+    mutationFn: (email_code: string) =>
+      apiClient.request<User>("/api/v1/users/me/email/verify", {
+        method: "POST", body: { email_code },
+      }),
+    onSuccess: (verified) => {
+      const current = useAuthStore.getState().user;
+      if (current?.id === verified.id) {
+        const updated = {
+          ...current,
+          email: verified.email,
+          email_verified_at: verified.email_verified_at,
+        };
+        useAuthStore.getState().setCurrentUser(updated);
+        cache.setQueryData(authKeys.currentUser(), updated);
+      }
+    },
+  });
   const save = useMutation({
     mutationFn: (mode: SecurityMode) =>
       apiClient.request<SecuritySettings>("/api/v1/users/me/security", {
@@ -120,5 +148,5 @@ export function useSecurityMutations() {
       ),
     onSuccess: invalidate,
   });
-  return { save, enroll, confirm, disable };
+  return { save, enroll, confirm, disable, verifyEmail };
 }

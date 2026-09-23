@@ -2,11 +2,13 @@ import { ApiClient, zhCNApiMessages } from "@lotusrain-net/backend-infrastructur
 import { queryClient } from "@/lib/query/client";
 import { clearAuthState } from "@/stores/auth-store";
 import { clearActiveThemeState } from "@/stores/theme-store";
+import { formatApiError } from "./error-messages";
 
 export { ApiClient, ApiError, withQuery } from "@lotusrain-net/backend-infrastructure-web/api";
 export type { ApiClientOptions, ApiRequestInit } from "@lotusrain-net/backend-infrastructure-web/api";
 
 export const apiClient = new ApiClient({
+  formatError: formatApiError,
   messages: zhCNApiMessages,
   refresh: async () => {
     const response = await fetch("/api/v1/auth/refresh", {

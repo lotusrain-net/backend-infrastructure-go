@@ -298,7 +298,7 @@ func (s *AuthenticationService) PutSecurity(ctx context.Context, id, mode string
 		return SecuritySettings{}, ErrAuthenticationForbidden
 	} // Disable requires a fresh second-factor proof.
 	if mode == "email" && user.EmailVerifiedAt == nil {
-		return SecuritySettings{}, ErrAuthenticationForbidden
+		return SecuritySettings{}, ErrEmailNotVerified
 	}
 	if mode == "totp" && !security.TOTPEnabled {
 		return SecuritySettings{}, ErrAuthenticationForbidden
@@ -456,4 +456,55 @@ func (s *AuthenticationService) Disable(ctx context.Context, id string, proof Se
 		return e
 	}
 	return s.base.RevokeAll(ctx, id)
+}
+
+// RequestEmailVerification only delivers to the authenticated account's current mailbox.
+func (s *AuthenticationService) RequestEmailVerification(ctx context.Context, id, ip string) error {
+	user, err := s.emailVerificationUser(ctx, id)
+	if err != nil {
+		return err
+	}
+	code, err := s.codes.Issue(ctx, user.Email, EmailCodeVerify, ip)
+	if err != nil {
+		return err
+	}
+	if err = s.mail.SendCode(ctx, user.Email, EmailCodeVerify, code); errors.Is(err, ErrMailRejected) {
+		return ErrAuthenticationUnavailable
+	}
+	return err
+}
+
+func (s *AuthenticationService) VerifyEmail(ctx context.Context, id, code string) (User, error) {
+	user, err := s.emailVerificationUser(ctx, id)
+	if err != nil {
+		return User{}, err
+	}
+	if !emailCodePattern.MatchString(code) {
+		return User{}, &FieldValidationError{Fields: map[string]string{"email_code": "must contain six digits"}}
+	}
+	receipt, err := s.codes.Verify(ctx, user.Email, EmailCodeVerify, code)
+	if err != nil {
+		return User{}, err
+	}
+	verified, err := s.repo.VerifyEmail(ctx, id, user.Email, receipt)
+	if err != nil {
+		return User{}, err
+	}
+	// The durable receipt prevents replay even if Redis cleanup fails.
+	_ = s.codes.Consume(ctx, user.Email, EmailCodeVerify, receipt)
+	return verified, nil
+}
+
+func (s *AuthenticationService) emailVerificationUser(ctx context.Context, id string) (User, error) {
+	if err := s.base.requireInitialized(ctx); err != nil {
+		return User{}, err
+	}
+	user, err := s.base.users.FindByID(ctx, id)
+	if err != nil {
+		return User{}, err
+	}
+	if !user.Active {
+		return User{}, ErrInactiveUser
+	}
+	return user, nil
 }

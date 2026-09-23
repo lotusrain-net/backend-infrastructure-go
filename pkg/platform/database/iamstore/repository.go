@@ -177,8 +177,8 @@ func (s *Store) UpdateUser(ctx context.Context, id string, input iam.UpdateUserI
 		if err != nil {
 			return mapDBError(err)
 		}
-		// Until an address verification flow exists, preserve the mailbox on
-		// which email second-factor login depends.
+		// Preserve the verified mailbox while email second-factor login is active.
+		// The user must switch to default before changing and reverifying it.
 		if current.Email != input.Email && security.Mode == "email" {
 			return iam.ErrAuthenticationForbidden
 		}

@@ -3,6 +3,7 @@ package iam
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 )
 
 var ErrAuthenticationForbidden = errors.New("operation not permitted")
+var ErrEmailNotVerified = fmt.Errorf("email not verified: %w", ErrAuthenticationForbidden)
 var ErrInvalidCode = errors.New("invalid or expired credential")
 var ErrEmailCodeRequired = errors.New("email verification required")
 var ErrSecurityConflict = errors.New("security settings changed; retry")
@@ -21,6 +23,7 @@ type EmailCodePurpose string
 const (
 	EmailCodeRegister EmailCodePurpose = "register"
 	EmailCodeLogin    EmailCodePurpose = "login"
+	EmailCodeVerify   EmailCodePurpose = "verify_email"
 )
 
 // FieldValidationError contains public field names and safe validation messages only.
@@ -128,11 +131,11 @@ type Mailer interface {
 }
 type VerificationCodeStore interface {
 	Issue(context.Context, string, EmailCodePurpose, string) (string, error)
-	// Verify returns a receipt for the PostgreSQL registration transaction.
+	// Verify returns a receipt for a PostgreSQL registration or verification transaction.
 	Verify(context.Context, string, EmailCodePurpose, string) (CodeReceipt, error)
 	// VerifyAndConsume atomically accepts an email login code exactly once.
 	VerifyAndConsume(context.Context, string, EmailCodePurpose, string) error
-	// Consume cleans up a committed registration receipt without deleting a newer code.
+	// Consume cleans up a committed receipt without deleting a newer code.
 	Consume(context.Context, string, EmailCodePurpose, CodeReceipt) error
 }
 type SecondFactorCrypto interface {
@@ -159,12 +162,15 @@ type AuthenticationRepository interface {
 	Security(context.Context, string) (SecurityState, error)
 	SaveSecurity(context.Context, string, SecurityState, int64) error
 	Register(context.Context, CreateUserInput, *CodeReceipt) (User, error)
+	VerifyEmail(context.Context, string, string, CodeReceipt) (User, error)
 	ConsumeCredential(context.Context, string, string, int64, int64, string) error
 }
 type AuthenticationApplication interface {
 	Login(context.Context, LoginInput) (LoginResult, error)
 	VerifyLogin(context.Context, VerifyInput) (TokenPair, error)
 	RequestEmailCode(context.Context, string, string, string) error
+	RequestEmailVerification(context.Context, string, string) error
+	VerifyEmail(context.Context, string, string) (User, error)
 	Register(context.Context, RegisterInput) (User, error)
 	Settings(context.Context) (AuthenticationSettings, error)
 	PutSettings(context.Context, AuthenticationSettings) error

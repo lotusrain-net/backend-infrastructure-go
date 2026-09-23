@@ -97,7 +97,7 @@ func (s *AuthenticationStore) SaveSecurity(ctx context.Context, id string, v iam
 				return mapDBError(e)
 			}
 			if !user.EmailVerifiedAt.Valid {
-				return iam.ErrAuthenticationForbidden
+				return iam.ErrEmailNotVerified
 			}
 			n, e := q.SaveSecuritySettings(ctx, securityParams(u, v, version))
 			if e != nil {
@@ -240,4 +240,55 @@ func timePointer(t pgtype.Timestamptz) *time.Time {
 		return nil
 	}
 	return &t.Time
+}
+
+func (s *AuthenticationStore) VerifyEmail(ctx context.Context, id, email string, receipt iam.CodeReceipt) (iam.User, error) {
+	u, err := parseUUID(id)
+	if err != nil {
+		return iam.User{}, err
+	}
+	var result iam.User
+	err = postgres.RunInTx(ctx, s.beginner, func(ctx context.Context, tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := q.EnsureSecuritySettings(ctx, u); err != nil {
+			return err
+		}
+		// Use the same lock order as profile updates and security policy changes.
+		if _, err := q.LockSecuritySettings(ctx, u); err != nil {
+			return mapDBError(err)
+		}
+		var lockedID pgtype.UUID
+		if err := tx.QueryRow(ctx, "SELECT id FROM users WHERE id=$1 FOR UPDATE", u).Scan(&lockedID); err != nil {
+			return mapDBError(err)
+		}
+		user, err := q.GetUserByID(ctx, u)
+		if err != nil {
+			return mapDBError(err)
+		}
+		if !user.IsActive {
+			return iam.ErrInactiveUser
+		}
+		if user.Email != email {
+			return iam.ErrSecurityConflict
+		}
+		if receipt.ID == "" || !receipt.ExpiresAt.After(time.Now()) {
+			return iam.ErrInvalidCode
+		}
+		if err = q.PruneAuthenticationConsumptions(ctx); err != nil {
+			return err
+		}
+		if err = q.InsertAuthenticationConsumption(ctx, dbgen.InsertAuthenticationConsumptionParams{CredentialID: "email:" + receipt.ID, ExpiresAt: pgtype.Timestamptz{Time: receipt.ExpiresAt, Valid: true}}); err != nil {
+			if errors.Is(mapDBError(err), iam.ErrDuplicateIdentity) {
+				return iam.ErrInvalidCode
+			}
+			return err
+		}
+		user, err = q.MarkEmailVerified(ctx, u)
+		if err != nil {
+			return err
+		}
+		result = userFromDB(user)
+		return nil
+	})
+	return result, err
 }

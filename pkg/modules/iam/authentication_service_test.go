@@ -237,3 +237,50 @@ func (c *authCodesStub) VerifyAndConsume(ctx context.Context, email string, purp
 	}
 	return c.Consume(ctx, email, purpose, receipt)
 }
+
+type verificationRepoStub struct {
+	*authRepoStub
+	marked int
+	err    error
+}
+
+func (r *verificationRepoStub) VerifyEmail(_ context.Context, id, email string, receipt CodeReceipt) (User, error) {
+	if r.err != nil {
+		return User{}, r.err
+	}
+	r.marked++
+	now := time.Now()
+	return User{ID: id, Email: email, Active: true, EmailVerifiedAt: &now}, nil
+}
+func TestExistingAccountEmailVerification(t *testing.T) {
+	now := time.Now()
+	s, codes := testAuthentication(t, &authRepoStub{state: AuthenticationState{InitializedAt: &now}})
+	r := &verificationRepoStub{authRepoStub: s.repo.(*authRepoStub)}
+	s.repo = r
+	ctx := context.Background()
+	if err := s.RequestEmailVerification(ctx, "user", "ip"); err != nil || codes.issued != 1 {
+		t.Fatal(err, codes.issued)
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "bad"); err == nil || codes.verified != 0 {
+		t.Fatal("malformed code accepted", err)
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "654321"); !errors.Is(err, ErrInvalidCode) || r.marked != 0 {
+		t.Fatal(err)
+	}
+	r.err = ErrSecurityConflict
+	if _, err := s.VerifyEmail(ctx, "user", "123456"); !errors.Is(err, ErrSecurityConflict) || codes.consumed != 0 {
+		t.Fatal("failed transaction consumed code", err)
+	}
+	r.err = nil
+	user, err := s.VerifyEmail(ctx, "user", "123456")
+	if err != nil || user.EmailVerifiedAt == nil || r.marked != 1 || codes.consumed != 1 {
+		t.Fatal(user, err)
+	}
+	s.base.users = authUsersStub{user: User{ID: "user", Email: "u@example.com", Active: false}}
+	if err := s.RequestEmailVerification(ctx, "user", "ip"); err == nil {
+		t.Fatal("inactive user sent code")
+	}
+	if _, err := s.VerifyEmail(ctx, "user", "123456"); err == nil {
+		t.Fatal("inactive user verified email")
+	}
+}

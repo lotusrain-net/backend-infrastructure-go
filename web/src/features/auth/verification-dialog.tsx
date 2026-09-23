@@ -21,7 +21,8 @@ export function requiresEmailVerification(error: unknown) {
   return (
     error instanceof ApiError &&
     error.status === 422 &&
-    error.fieldErrors?.email_code === "required"
+    ((error.details as Record<string, unknown> | undefined)?.email_code === "required" ||
+      error.fieldErrors?.email_code === "required")
   );
 }
 

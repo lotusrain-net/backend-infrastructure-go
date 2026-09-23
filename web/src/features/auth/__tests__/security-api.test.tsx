@@ -51,3 +51,16 @@ describe("protected TOTP operations", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+it("does not refresh or replay a wrong email verification code", async () => {
+  const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response(422, { email_code: "invalid or expired credential" }));
+  vi.stubGlobal("fetch", fetchMock);
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.verifyEmail.mutateAsync("123456")).rejects.toMatchObject({
+      status:422, message:"验证码不正确或已过期，请重新获取后再试。",
+    });
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/users/me/email/verify");
+});

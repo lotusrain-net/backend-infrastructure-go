@@ -47,6 +47,8 @@ func RegisterRoutes(router chi.Router, app iam.Application, jwt *iam.JWTManager,
 			r.Use(Authenticate(jwt))
 			r.Get("/users/me", h.me)
 			if cfg.Authentication != nil {
+				r.Post("/users/me/email/verification-code", h.requestEmailVerification)
+				r.Post("/users/me/email/verify", h.verifyEmail)
 				r.Get("/users/me/security", h.security)
 				r.Put("/users/me/security", h.putSecurity)
 				r.Post("/users/me/security/totp/enroll", h.enroll)
@@ -478,6 +480,8 @@ func writeIAMError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, iam.ErrEmailNotVerified):
+		apperror.WriteError(w, apperror.New(403, "email not verified", 403, err))
 	case errors.Is(err, iam.ErrAuthenticationUnavailable):
 		apperror.WriteError(w, apperror.ServiceUnavailable("authentication service unavailable", nil))
 	case errors.Is(err, iam.ErrDuplicateIdentity):

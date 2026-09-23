@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
+	"github.com/lotusrain-net/backend-infrastructure-go/pkg/modules/iam"
 	"log/slog"
 	"net"
 	"net/mail"
