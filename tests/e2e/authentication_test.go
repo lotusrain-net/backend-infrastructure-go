@@ -33,10 +33,10 @@ type recordingMailer struct {
 	codes map[string]string
 }
 
-func (m *recordingMailer) SendCode(_ context.Context, email, purpose, code string) error {
+func (m *recordingMailer) SendCode(_ context.Context, email string, purpose iam.EmailCodePurpose, code string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.codes[email+":"+purpose] = code
+	m.codes[email+":"+string(purpose)] = code
 	return nil
 }
 func (m *recordingMailer) code(email, purpose string) string {

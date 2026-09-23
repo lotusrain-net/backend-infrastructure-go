@@ -116,9 +116,9 @@ func TestEmailAndIPLimitsAreIndependentOfAccountAndPurpose(t *testing.T) {
 	s := New(client, "test", []byte(strings.Repeat("p", 32)))
 	ctx := context.Background()
 	for i := 0; i < 10; i++ {
-		purpose := "login"
+		purpose := iam.EmailCodeLogin
 		if i%2 == 0 {
-			purpose = "register"
+			purpose = iam.EmailCodeRegister
 		}
 		if _, e := s.Issue(ctx, "limit@example.com", purpose, "ip"); e != nil {
 			t.Fatal(i, e)

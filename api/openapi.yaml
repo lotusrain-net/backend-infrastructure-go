@@ -787,13 +787,15 @@ paths:
       operationId: requestEmailCode
       summary: >-
         Request a short-lived one-time code. Unknown addresses and delivery
-        failures return the same accepted response.
+        or recipient failures return the same accepted response; dependency
+        failures return 503.
       security: []
       responses:
         '202':
           description: >-
             Request a short-lived one-time code. Unknown addresses and delivery
-            failures return the same accepted response.
+            or recipient failures return the same accepted response; dependency
+            failures return 503.
           headers:
             Cache-Control:
               $ref: '#/components/headers/Cache-Control'
@@ -823,6 +825,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       requestBody:
         required: true
         content:
@@ -875,6 +879,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       requestBody:
         required: true
         content:

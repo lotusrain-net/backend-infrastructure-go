@@ -38,8 +38,8 @@ func (c Config) ValidateAuthentication() error {
 	if e != nil || sender.Address != c.SMTPFrom {
 		return errors.New("SMTP_FROM must be a plain email address")
 	}
-	if c.SMTPTLSMode != "tls" && c.SMTPTLSMode != "starttls" {
-		return errors.New("SMTP_TLS_MODE must be tls or starttls")
+	if c.SMTPTLSMode != "tls" && c.SMTPTLSMode != "starttls" && c.SMTPTLSMode != "plain" {
+		return errors.New("SMTP_TLS_MODE must be plain, tls or starttls")
 	}
 	if c.Environment == "production" && isPlaceholderSecret(c.SMTPPassword) {
 		return errors.New("SMTP_PASSWORD must not use a public placeholder")

@@ -11,46 +11,46 @@ import type {
   TokenPair,
   TOTPEnrollment,
   User,
+  EmailCodeRequest,
+  EmailCodeResponse,
+  VerifyLoginChallengeRequest,
 } from "@/types/api";
+
+export function requestEmailCode(input: EmailCodeRequest) {
+  return apiClient.request<EmailCodeResponse>("/api/v1/auth/email-code", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+}
+export function register(input: RegisterRequest) {
+  return apiClient.request<User>("/api/v1/auth/register", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+}
+export async function verifyLoginChallenge(input: VerifyLoginChallengeRequest) {
+  await apiClient.request<TokenPair>("/api/v1/auth/login/totp/verify", {
+    method: "POST", body: input, requiresAuth: false,
+  });
+  const user = await getCurrentUser();
+  queryClient.setQueryData(authKeys.currentUser(), user);
+  return user;
+}
 
 export function useEmailCodeMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: (input: { email: string; purpose: "register" | "login" }) =>
-      apiClient.request<{ sent: boolean; resend_after_seconds: number }>(
-        "/api/v1/auth/email-code",
-        { method: "POST", body: input, requiresAuth: false },
-      ),
+    mutationFn: requestEmailCode,
   });
 }
 export function useRegisterMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: (input: RegisterRequest) =>
-      apiClient.request<User>("/api/v1/auth/register", {
-        method: "POST",
-        body: input,
-        requiresAuth: false,
-      }),
+    mutationFn: register,
   });
 }
 export function useVerifyLoginMutation() {
   return useMutation({
     gcTime: 0,
-    mutationFn: async (input: {
-      challenge_id: string;
-      code?: string;
-      recovery_code?: string;
-    }) => {
-      await apiClient.request<TokenPair>("/api/v1/auth/login/totp/verify", {
-        method: "POST",
-        body: input,
-        requiresAuth: false,
-      });
-      const user = await getCurrentUser();
-      queryClient.setQueryData(authKeys.currentUser(), user);
-      return user;
-    },
+    mutationFn: verifyLoginChallenge,
   });
 }
 export function useBasicAuthQuery(enabled = true) {

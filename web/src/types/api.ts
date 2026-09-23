@@ -160,6 +160,21 @@ export interface TOTPChallenge {
   challenge_id: string;
   expires_in: number;
 }
+export type EmailCodePurpose = "register" | "login";
+export interface EmailCodeRequest {
+  email: string;
+  purpose: EmailCodePurpose;
+}
+export interface EmailCodeResponse {
+  sent: true;
+  resend_after_seconds: number;
+}
+export type LoginResponse = TokenPair | TOTPChallenge;
+export type LoginResult = AuthenticatedUser | TOTPChallenge;
+export type VerifyLoginChallengeRequest = { challenge_id: string } & (
+  | { code: string; recovery_code?: never }
+  | { recovery_code: string; code?: never }
+);
 export interface RegisterRequest {
   username: string;
   email: string;

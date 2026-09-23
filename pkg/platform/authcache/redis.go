@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -30,13 +31,13 @@ func (s *Store) digest(value string) string {
 	h.Write([]byte(value))
 	return hex.EncodeToString(h.Sum(nil))
 }
-func (s *Store) emailKey(email, purpose string) string {
-	return s.prefix + "email:" + purpose + ":" + s.digest(strings.ToLower(strings.TrimSpace(email)))
+func (s *Store) emailKey(email string, purpose iam.EmailCodePurpose) string {
+	return s.prefix + "email:" + string(purpose) + ":" + s.digest(strings.ToLower(strings.TrimSpace(email)))
 }
 func randomID() (string, error) {
 	b := make([]byte, 32)
 	if _, e := rand.Read(b); e != nil {
-		return "", e
+		return "", iam.ErrAuthenticationUnavailable
 	}
 	return hex.EncodeToString(b), nil
 }
@@ -56,20 +57,20 @@ redis.call('HSET',KEYS[1],'digest',ARGV[1],'id',ARGV[2],'errors',0)
 redis.call('EXPIRE',KEYS[1],600)
 return 0`
 
-func (s *Store) Issue(ctx context.Context, email, purpose, ip string) (string, error) {
+func (s *Store) Issue(ctx context.Context, email string, purpose iam.EmailCodePurpose, ip string) (string, error) {
 	n, e := rand.Int(rand.Reader, big.NewInt(1000000))
 	if e != nil {
-		return "", e
+		return "", cacheError(ctx, e)
 	}
 	code := fmt.Sprintf("%06d", n.Int64())
 	id, e := randomID()
 	if e != nil {
-		return "", e
+		return "", cacheError(ctx, e)
 	}
 	key := s.emailKey(email, purpose)
 	retry, e := s.client.Eval(ctx, issueScript, []string{key, key + ":cooldown", s.prefix + "limit:email:" + s.digest(strings.ToLower(strings.TrimSpace(email))), s.prefix + "limit:ip:" + s.digest(ip)}, s.digest(key+":"+code), id, 10, 50).Int()
 	if e != nil {
-		return "", e
+		return "", cacheError(ctx, e)
 	}
 	if retry > 0 {
 		return "", &iam.RateLimitError{RetryAfter: retry}
@@ -84,14 +85,16 @@ if redis.call('HGET',KEYS[1],'digest')~=ARGV[1] then
  redis.call('HINCRBY',KEYS[1],'errors',1)
  return {}
 end
-return {redis.call('HGET',KEYS[1],'id'),tostring(redis.call('PTTL',KEYS[1]))}`
+local result={redis.call('HGET',KEYS[1],'id'),tostring(redis.call('PTTL',KEYS[1]))}
+if ARGV[2]=='consume' then redis.call('DEL',KEYS[1]) end
+return result`
 
-func (s *Store) Verify(ctx context.Context, email, purpose, code string) (iam.CodeReceipt, error) {
+func (s *Store) Verify(ctx context.Context, email string, purpose iam.EmailCodePurpose, code string) (iam.CodeReceipt, error) {
 	key := s.emailKey(email, purpose)
 	started := time.Now()
 	v, e := s.client.Eval(ctx, verifyScript, []string{key}, s.digest(key+":"+code)).StringSlice()
 	if e != nil {
-		return iam.CodeReceipt{}, e
+		return iam.CodeReceipt{}, cacheError(ctx, e)
 	}
 	if len(v) != 2 {
 		return iam.CodeReceipt{}, iam.ErrInvalidCode
@@ -107,10 +110,10 @@ const consumeScript = `
 if redis.call('HGET',KEYS[1],'id')~=ARGV[1] then return 0 end
 redis.call('DEL',KEYS[1]);return 1`
 
-func (s *Store) Consume(ctx context.Context, email, purpose string, receipt iam.CodeReceipt) error {
+func (s *Store) Consume(ctx context.Context, email string, purpose iam.EmailCodePurpose, receipt iam.CodeReceipt) error {
 	n, e := s.client.Eval(ctx, consumeScript, []string{s.emailKey(email, purpose)}, receipt.ID).Int()
 	if e != nil {
-		return e
+		return cacheError(ctx, e)
 	}
 	if n != 1 {
 		return iam.ErrInvalidCode
@@ -125,10 +128,10 @@ func (c challengeStore) key(id string) string { return c.s.prefix + "challenge:"
 func (c challengeStore) Issue(ctx context.Context, v iam.Challenge) (string, error) {
 	id, e := randomID()
 	if e != nil {
-		return "", e
+		return "", cacheError(ctx, e)
 	}
 	e = c.s.client.Eval(ctx, `redis.call('HSET',KEYS[1],'user',ARGV[1],'version',ARGV[2],'attempts',0);redis.call('EXPIRE',KEYS[1],300);return 1`, []string{c.key(id)}, v.UserID, v.Version).Err()
-	return id, e
+	return id, cacheError(ctx, e)
 }
 func (c challengeStore) Attempt(ctx context.Context, id string) (iam.Challenge, error) {
 	if len(id) != 64 {
@@ -136,21 +139,47 @@ func (c challengeStore) Attempt(ctx context.Context, id string) (iam.Challenge, 
 	}
 	v, e := c.s.client.Eval(ctx, `if redis.call('EXISTS',KEYS[1])==0 then return {} end; if redis.call('HINCRBY',KEYS[1],'attempts',1)>5 then return {} end;return {redis.call('HGET',KEYS[1],'user'),redis.call('HGET',KEYS[1],'version')}`, []string{c.key(id)}).StringSlice()
 	if e != nil {
-		return iam.Challenge{}, e
+		return iam.Challenge{}, cacheError(ctx, e)
 	}
 	if len(v) != 2 {
 		return iam.Challenge{}, iam.ErrInvalidCode
 	}
 	version, e := strconv.ParseInt(v[1], 10, 64)
-	return iam.Challenge{UserID: v[0], Version: version}, e
+	return iam.Challenge{UserID: v[0], Version: version}, cacheError(ctx, e)
 }
 func (c challengeStore) Consume(ctx context.Context, id string) error {
 	n, e := c.s.client.Del(ctx, c.key(id)).Result()
 	if e != nil {
-		return e
+		return cacheError(ctx, e)
 	}
 	if n != 1 {
 		return iam.ErrInvalidCode
 	}
 	return nil
+}
+
+// VerifyAndConsume uses the same attempt counter and expiry check in a single Lua operation.
+func (s *Store) VerifyAndConsume(ctx context.Context, email string, purpose iam.EmailCodePurpose, code string) error {
+	key := s.emailKey(email, purpose)
+	result, err := s.client.Eval(ctx, verifyScript, []string{key}, s.digest(key+":"+code), "consume").StringSlice()
+	if err != nil {
+		return cacheError(ctx, err)
+	}
+	if len(result) != 2 {
+		return iam.ErrInvalidCode
+	}
+	return nil
+}
+
+func cacheError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	return iam.ErrAuthenticationUnavailable
 }

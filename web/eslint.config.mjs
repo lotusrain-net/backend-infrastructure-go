@@ -8,5 +8,7 @@ export default defineConfig([
     "coverage/**",
     "node_modules_stale_*/**",
     ".node_modules_stale_*/**",
+    "**/._*",
+    "**/.__*",
   ]),
 ]);

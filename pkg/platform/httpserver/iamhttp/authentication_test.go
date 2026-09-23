@@ -60,7 +60,7 @@ func TestEmailCodeErrorsAndRetryAfter(t *testing.T) {
 	for _, tc := range []struct {
 		err    error
 		status int
-	}{{iam.ErrAuthenticationForbidden, 403}, {&iam.RateLimitError{RetryAfter: 60}, 429}, {nil, 202}} {
+	}{{iam.ErrAuthenticationForbidden, 403}, {iam.ErrAuthenticationUnavailable, 503}, {&iam.FieldValidationError{Fields: map[string]string{"email": "invalid"}}, 422}, {&iam.RateLimitError{RetryAfter: 60}, 429}, {nil, 202}} {
 		r := chi.NewRouter()
 		RegisterRoutes(r, nil, nil, HTTPConfig{Authentication: authenticationStub{err: tc.err}})
 		w := httptest.NewRecorder()

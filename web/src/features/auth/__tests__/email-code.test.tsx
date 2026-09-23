@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EmailCode } from "../email-code";
+import { EmailCodeField as EmailCode } from "../email-code";
+import { ApiError } from "@/lib/api/client";
 const send = vi.fn();
 vi.mock("../security-api", () => ({
   useEmailCodeMutation: () => ({

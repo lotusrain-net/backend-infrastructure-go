@@ -23,37 +23,16 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useLoginMutation } from "@/features/auth/api";
+import { resolveLoginDestination } from "./navigation";
+import { applyAuthFormError } from "./form-errors";
 
 interface LoginValues {
   email: string;
   password: string;
 }
 
-export function resolveLoginDestination(nextPath?: string) {
-  if (!nextPath) {
-    return "/dashboard";
-  }
+export { resolveLoginDestination } from "./navigation";
 
-  try {
-    const decodedPath = decodeURIComponent(nextPath);
-    if (
-      decodedPath.startsWith("//") ||
-      /[\\\\\u0000-\u001F\u007F]/.test(decodedPath)
-    ) {
-      return "/dashboard";
-    }
-
-    const localOrigin = "http://local.invalid";
-    const target = new URL(nextPath, localOrigin);
-    if (target.origin !== localOrigin || !target.pathname.startsWith("/")) {
-      return "/dashboard";
-    }
-
-    return `${target.pathname}${target.search}${target.hash}`;
-  } catch {
-    return "/dashboard";
-  }
-}
 
 export function LoginForm({ nextPath }: { nextPath?: string }) {
   const router = useRouter();
@@ -110,9 +89,8 @@ export function LoginForm({ nextPath }: { nextPath?: string }) {
       if (requiresEmailVerification(error)) {
         setEmailVerification({ ...values, email: values.email.trim() });
       } else {
-        setMessage(
-          error instanceof Error ? error.message : "登录失败，请稍后重试。",
-        );
+        applyAuthFormError(error, form, ["email", "password"]);
+        setMessage(error instanceof Error ? error.message : "登录失败，请稍后重试。");
       }
     } finally {
       pending.current = false;

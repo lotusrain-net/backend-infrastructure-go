@@ -11,6 +11,11 @@ func TestAuthenticationConfiguration(t *testing.T) {
 	if e := valid.ValidateAuthentication(); e != nil {
 		t.Fatal(e)
 	}
+	valid.SMTPTLSMode = "plain"
+	if err := valid.ValidateAuthentication(); err != nil {
+		t.Fatal("explicit production plain SMTP refused", err)
+	}
+	valid.SMTPTLSMode = "tls"
 	for _, mutate := range []func(*Config){func(c *Config) { c.RecoveryCodeTTL = 0 }, func(c *Config) { c.SMTPEnabled = false }, func(c *Config) { c.SMTPHost = "" }, func(c *Config) { c.SMTPTLSMode = "none" }, func(c *Config) { c.AuthenticationKey = "bad" }, func(c *Config) { c.SMTPPassword = "" }, func(c *Config) { c.SMTPTimeout = 0 }} {
 		c := valid
 		mutate(&c)

@@ -25,6 +25,16 @@ export function EmailCode({
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
   const pending = useRef(false);
+  const identity = `${email.trim().toLowerCase()}\u0000${purpose}`;
+  const previousIdentity = useRef(identity);
+  useEffect(() => {
+    if (previousIdentity.current !== identity) {
+      previousIdentity.current = identity;
+      setSeconds(0);
+      setError("");
+      onChange("");
+    }
+  }, [identity, onChange]);
   useEffect(() => {
     if (seconds <= 0) return;
     const timer = setTimeout(() => setSeconds(seconds - 1), 1000);
@@ -35,7 +45,9 @@ export function EmailCode({
     pending.current = true;
     setError("");
     try {
+      const requestIdentity = identity;
       const result = await send.mutateAsync({ email: email.trim(), purpose });
+      if (requestIdentity !== previousIdentity.current) return;
       setSeconds(result.resend_after_seconds);
     } catch (error) {
       if (error instanceof ApiError && error.status === 429)
@@ -81,3 +93,5 @@ export function EmailCode({
     </div>
   );
 }
+
+export const EmailCodeField = EmailCode;

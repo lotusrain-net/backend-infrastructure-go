@@ -44,7 +44,7 @@ API 需要以下独立、稳定的密钥，各由 `openssl rand -hex 32` 生成�
 
 保持这些值跨重启不变。修改加密密钥而未重新加密已有密文，会导致现有 TOTP 密钥无法解密；本次不实现密钥轮换。
 
-生产必须 `SMTP_ENABLED=true`，配置 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`。`SMTP_TLS_MODE=starttls`（默认，通常端口 587）或 `tls`（通常端口 465），均验证服务端证书，禁止明文降级；`SMTP_TIMEOUT` 默认十秒。证书、认证失败与超时映射为脱敏错误。开发/测试只有显式 `SMTP_ENABLED=false` 才跳过 SMTP；仍保存 Redis 凭据并记录用途及收件人摘要，不记录原始邮箱或验证码。需要手工完成邮箱验证时请配置可收信的开发 SMTP。
+生产必须 `SMTP_ENABLED=true`，配置 `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`。`SMTP_TLS_MODE=starttls`（默认，通常端口 587）或 `tls`（通常端口 465）均验证服务端证书；`plain` 只能显式启用，适用于受信任网络，系统不会自动降级。连接、证书、认证和超时故障映射为脱敏 `503`；单封收件人或内容拒收保持通用发送响应。开发/测试只有显式 `SMTP_ENABLED=false` 才跳过 SMTP；仍保存 Redis 凭据并记录用途及收件人摘要，不记录原始邮箱或验证码。需要手工完成邮箱验证时请配置可收信的开发 SMTP。
 
 `./scripts/compose-up.sh` 创建新的 `.env` 时自动生成独立密钥。升级已有 `.env` 时手动补齐这两个值及 SMTP 配置；脚本不会覆盖现有秘密。
 

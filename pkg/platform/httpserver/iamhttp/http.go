@@ -466,6 +466,11 @@ func queryInt(r *http.Request, name string, fallback int) int {
 }
 
 func writeIAMError(w http.ResponseWriter, err error) {
+	var fields *iam.FieldValidationError
+	if errors.As(err, &fields) {
+		apperror.WriteError(w, apperror.Validation(fields.Fields))
+		return
+	}
 	var limited *iam.RateLimitError
 	if errors.As(err, &limited) {
 		w.Header().Set("Retry-After", strconv.Itoa(limited.RetryAfter))
@@ -473,6 +478,10 @@ func writeIAMError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, iam.ErrAuthenticationUnavailable):
+		apperror.WriteError(w, apperror.ServiceUnavailable("authentication service unavailable", nil))
+	case errors.Is(err, iam.ErrDuplicateIdentity):
+		apperror.WriteError(w, apperror.Conflict("identity conflict", nil))
 	case errors.Is(err, iam.ErrEmailCodeRequired):
 		apperror.WriteError(w, apperror.Validation(map[string]string{"email_code": "required"}))
 	case errors.Is(err, iam.ErrInvalidCode), errors.Is(err, iam.ErrInvalidCredentials), errors.Is(err, iam.ErrInvalidRefreshToken):

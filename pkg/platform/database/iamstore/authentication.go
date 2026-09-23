@@ -130,7 +130,7 @@ func (s *AuthenticationStore) Register(ctx context.Context, in iam.CreateUserInp
 			return iam.ErrAuthenticationForbidden
 		}
 		if settings.RegistrationEmailVerificationRequired && receipt == nil {
-			return iam.ErrInvalidCode
+			return iam.ErrEmailCodeRequired
 		}
 		if len(settings.AllowedEmailDomains) > 0 {
 			allowed := false

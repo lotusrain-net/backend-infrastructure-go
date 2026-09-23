@@ -13,6 +13,22 @@ var ErrAuthenticationForbidden = errors.New("operation not permitted")
 var ErrInvalidCode = errors.New("invalid or expired credential")
 var ErrEmailCodeRequired = errors.New("email verification required")
 var ErrSecurityConflict = errors.New("security settings changed; retry")
+var ErrAuthenticationUnavailable = errors.New("authentication service unavailable")
+var ErrMailRejected = errors.New("message rejected")
+
+type EmailCodePurpose string
+
+const (
+	EmailCodeRegister EmailCodePurpose = "register"
+	EmailCodeLogin    EmailCodePurpose = "login"
+)
+
+// FieldValidationError contains public field names and safe validation messages only.
+type FieldValidationError struct{ Fields map[string]string }
+
+func (e *FieldValidationError) Error() string { return "validation failed" }
+
+var emailCodePattern = regexp.MustCompile(`^[0-9]{6}$`)
 
 type RateLimitError struct{ RetryAfter int }
 
@@ -108,12 +124,16 @@ type CodeReceipt struct {
 	ExpiresAt time.Time
 }
 type Mailer interface {
-	SendCode(context.Context, string, string, string) error
+	SendCode(context.Context, string, EmailCodePurpose, string) error
 }
-type EmailCodes interface {
-	Issue(context.Context, string, string, string) (string, error)
-	Verify(context.Context, string, string, string) (CodeReceipt, error)
-	Consume(context.Context, string, string, CodeReceipt) error
+type VerificationCodeStore interface {
+	Issue(context.Context, string, EmailCodePurpose, string) (string, error)
+	// Verify returns a receipt for the PostgreSQL registration transaction.
+	Verify(context.Context, string, EmailCodePurpose, string) (CodeReceipt, error)
+	// VerifyAndConsume atomically accepts an email login code exactly once.
+	VerifyAndConsume(context.Context, string, EmailCodePurpose, string) error
+	// Consume cleans up a committed registration receipt without deleting a newer code.
+	Consume(context.Context, string, EmailCodePurpose, CodeReceipt) error
 }
 type SecondFactorCrypto interface {
 	NewSecret(string) (string, string, error)
