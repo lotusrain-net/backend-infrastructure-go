@@ -83,7 +83,7 @@ func TestMigrationsUpDownUpAndSeedIdempotency(t *testing.T) {
 	if err := conn.QueryRow(ctx, "SELECT count(*) FROM permissions").Scan(&permissions); err != nil {
 		t.Fatal(err)
 	}
-	if roles != 2 || permissions != 10 {
+	if roles != 2 || permissions != 12 {
 		t.Fatalf("seed counts roles=%d permissions=%d", roles, permissions)
 	}
 	exerciseGeneratedQueries(t, ctx, conn)
@@ -366,7 +366,7 @@ func exerciseGeneratedQueries(t *testing.T, ctx context.Context, conn *pgx.Conn)
 	if roles, err := queries.ListRoles(ctx); err != nil || len(roles) < 3 {
 		t.Fatalf("ListRoles() count = %d, %v", len(roles), err)
 	}
-	if permissions, err := queries.ListPermissions(ctx); err != nil || len(permissions) != 10 {
+	if permissions, err := queries.ListPermissions(ctx); err != nil || len(permissions) != 12 {
 		t.Fatalf("ListPermissions() count = %d, %v", len(permissions), err)
 	}
 	if err := queries.DeleteUser(ctx, created.ID); err != nil {

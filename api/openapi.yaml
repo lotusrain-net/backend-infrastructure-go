@@ -57,6 +57,11 @@ paths:
     post:
       operationId: login
       summary: Exchange credentials for an access and refresh token pair
+      description: >-
+        If the password is valid and the account requires email verification,
+        omitting email_code returns 422 with data.email_code set to required.
+        Obtain an email code and resubmit the credentials with email_code.
+        No session or authentication cookie is issued before verification.
       security: []
       requestBody:
         required: true
@@ -65,6 +70,19 @@ paths:
             schema:
               $ref: "#/components/schemas/LoginRequest"
       responses:
+        '202':
+          description: >-
+            TOTP required. No cookies or tokens are issued; the challenge must remain in
+            memory only.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPChallengeEnvelope'
         "200":
           description: Authentication succeeded.
           headers:
@@ -295,6 +313,7 @@ paths:
     patch:
       operationId: updateUser
       summary: Update a user profile
+      description: Email changes are forbidden while email second-factor authentication is enabled. Other profile fields can still be updated.
       security:
         - bearerAuth: []
         - accessCookie: []
@@ -327,6 +346,7 @@ paths:
     post:
       operationId: resetUserPassword
       summary: Reset a user's password and revoke their sessions
+      description: Atomically updates the password and invalidates outstanding TOTP login challenges and pending enrollment. Enabled TOTP remains required for new logins.
       security:
         - bearerAuth: []
         - accessCookie: []
@@ -762,6 +782,484 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/v1/auth/email-code:
+    post:
+      operationId: requestEmailCode
+      summary: >-
+        Request a short-lived one-time code. Unknown addresses and delivery
+        failures return the same accepted response.
+      security: []
+      responses:
+        '202':
+          description: >-
+            Request a short-lived one-time code. Unknown addresses and delivery
+            failures return the same accepted response.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailCodeResultEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailCodeRequest'
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      summary: >-
+        Create a user with the default user role. No session or authentication
+        cookie is issued.
+      description: >-
+        If registration policy requires email verification, omitting email_code
+        returns 422 with data.email_code set to required. Obtain an email code
+        and resubmit the registration fields with email_code. No user is created
+        until verification succeeds. Invalid or expired codes return 401.
+      security: []
+      responses:
+        '201':
+          description: >-
+            Create a user with the default user role. No session or authentication
+            cookie is issued.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+  /api/v1/auth/login/totp/verify:
+    post:
+      operationId: verifyTOTPLogin
+      summary: >-
+        Consume a challenge and one TOTP or recovery code, then issue
+        authentication cookies.
+      security: []
+      responses:
+        '200':
+          description: >-
+            Consume a challenge and one TOTP or recovery code, then issue
+            authentication cookies.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+            Set-Cookie:
+              schema:
+                type: string
+              description: >-
+                HttpOnly access and refresh cookies; only issued after successful
+                verification.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPairEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPVerifyRequest'
+  /api/v1/system-settings/basic-auth:
+    get:
+      operationId: getAuthenticationSettings
+      summary: Read authentication settings
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      x-permission: system-settings:read
+      description: >-
+        Requires system-settings:read or the super administrator wildcard
+        permission.
+      responses:
+        '200':
+          description: Read authentication settings
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationSettingsEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      operationId: putAuthenticationSettings
+      summary: Update the four public authentication settings
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      x-permission: system-settings:write
+      description: >-
+        Requires system-settings:write or the super administrator wildcard
+        permission.
+      responses:
+        '200':
+          description: Update the four public authentication settings
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationSettingsEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthenticationSettings'
+  /api/v1/users/me/security:
+    get:
+      operationId: getMySecurity
+      summary: Read two-step verification policy
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '200':
+          description: Read two-step verification policy
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecuritySettingsEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      operationId: putMySecurity
+      summary: >-
+        Change security policy. Email requires verified email. TOTP requires
+        confirmed enrollment; disabling TOTP requires the disable endpoint.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '200':
+          description: >-
+            Change security policy. Email requires verified email. TOTP requires
+            confirmed enrollment; disabling TOTP requires the disable endpoint.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecuritySettingsEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityUpdate'
+  /api/v1/users/me/security/totp/enroll:
+    post:
+      operationId: enrollTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid current-password proof returns 422 with data.proof; do not refresh or automatically retry that proof.
+      summary: >-
+        Verify current password and begin ten-minute TOTP enrollment. Generate QR
+        locally from otpauth_uri; do not persist or log secrets.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '200':
+          description: >-
+            Verify current password and begin ten-minute TOTP enrollment. Generate
+            QR locally from otpauth_uri; do not persist or log secrets.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPEnrollmentEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityProof'
+  /api/v1/users/me/security/totp/confirm:
+    post:
+      operationId: confirmTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid or expired proof returns 422 with data.proof; do not refresh or automatically retry that proof.
+      summary: Confirm enrollment and display ten one-time recovery codes exactly once.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '200':
+          description: >-
+            Confirm enrollment and display ten one-time recovery codes exactly
+            once.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPRecoveryCodesEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TOTPConfirmRequest'
+  /api/v1/users/me/security/totp/disable:
+    post:
+      operationId: disableTOTP
+      description: Missing or expired sessions return 401 and may be refreshed. Invalid password or second-factor proof returns 422 with data.proof. Retries with a valid password complete session revocation even if TOTP is already disabled.
+      summary: >-
+        Verify current password and a code or recovery code, then disable TOTP.
+        Repeating after disable is idempotent with a valid password.
+      security:
+        - bearerAuth: []
+        - accessCookie: []
+      responses:
+        '200':
+          description: >-
+            Verify current password and a code or recovery code, then disable
+            TOTP. Repeating after disable is idempotent with a valid password.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/Cache-Control'
+            Pragma:
+              $ref: '#/components/headers/Pragma'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TOTPDisabledEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Cooldown or rate limit. No account existence information is returned.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+              description: Seconds until retry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityProof'
 components:
   securitySchemes:
     bearerAuth:
@@ -957,6 +1455,265 @@ components:
               items: {}
             meta:
               $ref: "#/components/schemas/PaginationMeta"
+    AuthenticationSettings:
+      type: object
+      additionalProperties: false
+      required:
+        - password_login_enabled
+        - registration_enabled
+        - registration_email_verification_required
+        - allowed_email_domains
+      properties:
+        password_login_enabled:
+          type: boolean
+          default: true
+        registration_enabled:
+          type: boolean
+          default: false
+        registration_email_verification_required:
+          type: boolean
+          default: true
+        allowed_email_domains:
+          type: array
+          default: []
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 253
+            pattern: >-
+              ^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)+$
+    EmailCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - purpose
+      properties:
+        email:
+          type: string
+          format: email
+        purpose:
+          type: string
+          enum:
+            - register
+            - login
+    EmailCodeResult:
+      type: object
+      additionalProperties: false
+      required:
+        - sent
+        - resend_after_seconds
+      properties:
+        sent:
+          type: boolean
+          enum:
+            - true
+        resend_after_seconds:
+          type: integer
+          default: 60
+          minimum: 1
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+        email_code: &ref_0
+          type: string
+          pattern: ^[0-9]{6}$
+    TOTPChallenge:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - challenge_id
+        - expires_in
+      properties:
+        status:
+          type: string
+          enum:
+            - totp_required
+        challenge_id:
+          type: string
+          minLength: 1
+        expires_in:
+          type: integer
+          default: 300
+          minimum: 1
+    TOTPVerifyRequest:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - challenge_id
+            - code
+          properties:
+            challenge_id: &ref_1
+              type: string
+            code: *ref_0
+        - type: object
+          additionalProperties: false
+          required:
+            - challenge_id
+            - recovery_code
+          properties:
+            challenge_id: *ref_1
+            recovery_code:
+              type: string
+              minLength: 1
+    SecurityMode:
+      type: string
+      enum:
+        - default
+        - email
+        - totp
+      default: default
+    SecuritySettings:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+        - totp_enabled
+        - recovery_codes_remaining
+      properties:
+        recovery_codes_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Recovery codes expire at this time; null when no codes exist. Default lifetime is 30 days, configured by RECOVERY_CODE_TTL.
+        mode:
+          $ref: '#/components/schemas/SecurityMode'
+        totp_enabled:
+          type: boolean
+          default: false
+        recovery_codes_remaining:
+          type: integer
+          minimum: 0
+          default: 0
+    SecurityUpdate:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+      properties:
+        mode:
+          $ref: '#/components/schemas/SecurityMode'
+    SecurityProof:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          minLength: 1
+        code: *ref_0
+        recovery_code:
+          type: string
+          minLength: 1
+    TOTPEnrollment:
+      type: object
+      additionalProperties: false
+      required:
+        - secret
+        - otpauth_uri
+        - expires_in
+      properties:
+        secret: *ref_1
+        otpauth_uri:
+          type: string
+          format: uri
+        expires_in:
+          type: integer
+          default: 600
+    TOTPConfirmRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code: *ref_0
+    TOTPRecoveryCodes:
+      type: object
+      additionalProperties: false
+      required:
+        - recovery_codes
+      properties:
+        recovery_codes:
+          type: array
+          items: *ref_1
+          minItems: 10
+          maxItems: 10
+    TOTPDisabled:
+      type: object
+      additionalProperties: false
+      required:
+        - disabled
+      properties:
+        disabled:
+          type: boolean
+    AuthenticationSettingsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthenticationSettings'
+    EmailCodeResultEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/EmailCodeResult'
+    TOTPChallengeEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TOTPChallenge'
+    SecuritySettingsEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SecuritySettings'
+    TOTPEnrollmentEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TOTPEnrollment'
+    TOTPRecoveryCodesEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TOTPRecoveryCodes'
+    TOTPDisabledEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TOTPDisabled'
     LoginRequest:
       type: object
       additionalProperties: false
@@ -968,6 +1725,9 @@ components:
         password:
           type: string
           minLength: 1
+        email_code:
+          type: string
+          pattern: '^[0-9]{6}$'
     RefreshRequest:
       type: object
       additionalProperties: false
@@ -1000,6 +1760,10 @@ components:
       type: object
       required: [id, email, username, display_name, is_active]
       properties:
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
         id:
           type: string
           format: uuid

@@ -100,9 +100,23 @@ Assert-True ($composeSource -match 'COOKIE_SECURE:\s*\$\{COOKIE_SECURE:-true\}')
 $envPath = Join-Path $root $EnvFile
 Assert-True (Test-Path -LiteralPath $envPath -PathType Leaf) "Missing environment template: $EnvFile"
 
-$json = & docker compose --env-file $envPath -f $composePath config --format json
-if ($LASTEXITCODE -ne 0) {
-    throw "docker compose config failed with exit code $LASTEXITCODE"
+# Example environment files intentionally leave cryptographic secrets blank. Supply
+# ephemeral verifier-only values so Compose can validate the deployment model
+# without weakening the required-secret checks used by real deployments.
+$previousAuthenticationKey = [Environment]::GetEnvironmentVariable("AUTHENTICATION_KEY", "Process")
+$previousAuthenticationPepper = [Environment]::GetEnvironmentVariable("AUTHENTICATION_PEPPER", "Process")
+try {
+    [Environment]::SetEnvironmentVariable("AUTHENTICATION_KEY", "delivery-verification-key-not-for-deployment", "Process")
+    [Environment]::SetEnvironmentVariable("AUTHENTICATION_PEPPER", "delivery-verification-pepper-not-for-deployment", "Process")
+    $json = & docker compose --env-file $envPath -f $composePath config --format json
+    $composeExitCode = $LASTEXITCODE
+}
+finally {
+    [Environment]::SetEnvironmentVariable("AUTHENTICATION_KEY", $previousAuthenticationKey, "Process")
+    [Environment]::SetEnvironmentVariable("AUTHENTICATION_PEPPER", $previousAuthenticationPepper, "Process")
+}
+if ($composeExitCode -ne 0) {
+    throw "docker compose config failed with exit code $composeExitCode"
 }
 $config = $json | ConvertFrom-Json
 $requiredServices = @("postgres", "redis", "migrate", "seed-admin", "api", "worker", "scheduler", "web")

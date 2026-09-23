@@ -9,7 +9,7 @@ describe("RBAC navigation", () => {
     expect(visible.find((item) => item.href === "/tasks")).toBeUndefined();
     expect(visible.find((item) => item.href === "/audit")).toBeUndefined();
 
-    const identity = visible.find((item) => item.label === "身份与访问");
+    const identity = visible.find((item) => item.label === "系统设置");
     expect(identity?.children?.map((item) => item.href)).toEqual(["/iam/users"]);
   });
 
@@ -26,6 +26,6 @@ describe("RBAC navigation", () => {
   it("removes parent routes that have no own permission and no visible children", () => {
     const visible = filterNavigation(appNavigation, { permissions: [] });
 
-    expect(visible.find((item) => item.label === "身份与访问")).toBeUndefined();
+    expect(visible.find((item) => item.label === "系统设置")).toBeUndefined();
   });
 });

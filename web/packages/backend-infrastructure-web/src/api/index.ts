@@ -21,7 +21,10 @@ export interface PaginatedResponse<T> {
 }
 
 export type JSONPrimitive = null | boolean | number | string;
-export type JSONValue = JSONPrimitive | JSONValue[] | { [key: string]: JSONValue };
+export type JSONValue =
+  | JSONPrimitive
+  | JSONValue[]
+  | { [key: string]: JSONValue };
 export type QueryValue = JSONValue | undefined;
 
 export interface ApiMessages {
@@ -60,6 +63,7 @@ export interface ApiRequestInit extends Omit<RequestInit, "body"> {
 }
 
 export class ApiError extends Error {
+  retryAfterSeconds?: number;
   constructor(
     message: string,
     public readonly status: number,
@@ -107,12 +111,20 @@ export class ApiClient {
   ): Promise<T> {
     let response: Response;
     try {
-      response = await (this.configuredFetch ?? globalThis.fetch)(resolveURL(this.baseURL, input), this.buildInit(init));
+      response = await (this.configuredFetch ?? globalThis.fetch)(
+        resolveURL(this.baseURL, input),
+        this.buildInit(init),
+      );
     } catch {
       throw new ApiError(this.messages.networkError, 0, 0);
     }
 
-    if (response.status === 401 && requiresAuth && !didRefresh && this.refresh) {
+    if (
+      response.status === 401 &&
+      requiresAuth &&
+      !didRefresh &&
+      this.refresh
+    ) {
       return this.retryAfterRefresh<T>(input, init);
     }
 
@@ -120,10 +132,18 @@ export class ApiClient {
     if (!response.ok) {
       if (response.status === 401 && requiresAuth && didRefresh) {
         await this.expireSession();
-        throw this.toApiError(response.status, envelope, this.messages.sessionExpired);
+        throw this.toApiError(
+          response.status,
+          envelope,
+          this.messages.sessionExpired,
+        );
       }
 
-      throw this.toApiError(response.status, envelope);
+      const error = this.toApiError(response.status, envelope);
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      if (Number.isFinite(retryAfter) && retryAfter > 0)
+        error.retryAfterSeconds = Math.ceil(retryAfter);
+      throw error;
     }
 
     return (envelope?.data ?? undefined) as T;
@@ -145,7 +165,11 @@ export class ApiClient {
       }
     }
 
-    if (!body && requestInit.method?.toUpperCase() === "POST" && !headers.has("content-type")) {
+    if (
+      !body &&
+      requestInit.method?.toUpperCase() === "POST" &&
+      !headers.has("content-type")
+    ) {
       headers.set("content-type", "application/json");
     }
 
@@ -157,7 +181,10 @@ export class ApiClient {
     };
   }
 
-  private async retryAfterRefresh<T>(input: string, init: ApiRequestInit): Promise<T> {
+  private async retryAfterRefresh<T>(
+    input: string,
+    init: ApiRequestInit,
+  ): Promise<T> {
     try {
       await this.refreshSession();
     } catch {
@@ -186,15 +213,29 @@ export class ApiClient {
     await this.onSessionExpired?.("session_expired");
   }
 
-  private toApiError(status: number, envelope: ApiEnvelope<unknown> | null, fallback?: string): ApiError {
-    const message = fallback ?? envelope?.msg ?? defaultErrorMessage(status, this.messages);
+  private toApiError(
+    status: number,
+    envelope: ApiEnvelope<unknown> | null,
+    fallback?: string,
+  ): ApiError {
+    const message =
+      fallback ?? envelope?.msg ?? defaultErrorMessage(status, this.messages);
     const code = envelope?.code ?? status;
     const details = envelope?.data;
-    return new ApiError(message, status, code, details, extractFieldErrors(details));
+    return new ApiError(
+      message,
+      status,
+      code,
+      details,
+      extractFieldErrors(details),
+    );
   }
 }
 
-export function withQuery(input: string, params?: Record<string, QueryValue>): string {
+export function withQuery(
+  input: string,
+  params?: Record<string, QueryValue>,
+): string {
   if (!params) {
     return input;
   }
@@ -231,7 +272,8 @@ function isNativeBody(body: BodyInit | object): body is BodyInit {
   return (
     typeof body === "string" ||
     (typeof FormData !== "undefined" && body instanceof FormData) ||
-    (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) ||
+    (typeof URLSearchParams !== "undefined" &&
+      body instanceof URLSearchParams) ||
     (typeof Blob !== "undefined" && body instanceof Blob) ||
     (typeof ArrayBuffer !== "undefined" && body instanceof ArrayBuffer) ||
     (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(body)) ||
@@ -239,7 +281,9 @@ function isNativeBody(body: BodyInit | object): body is BodyInit {
   );
 }
 
-async function parseEnvelope(response: Response): Promise<ApiEnvelope<unknown> | null> {
+async function parseEnvelope(
+  response: Response,
+): Promise<ApiEnvelope<unknown> | null> {
   if (response.status === 204) {
     return null;
   }
@@ -272,7 +316,10 @@ function extractFieldErrors(value: unknown): ApiFieldErrors | undefined {
   }
 
   const entries = Object.entries(value);
-  if (entries.length === 0 || entries.some(([, fieldValue]) => typeof fieldValue !== "string")) {
+  if (
+    entries.length === 0 ||
+    entries.some(([, fieldValue]) => typeof fieldValue !== "string")
+  ) {
     return undefined;
   }
 

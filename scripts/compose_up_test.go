@@ -25,3 +25,51 @@ func TestComposeUpInitializesTheDevelopmentProfileAndWaitsForHealth(t *testing.T
 		}
 	}
 }
+
+func TestComposeUpGeneratesIndependentAuthenticationSecrets(t *testing.T) {
+	raw, err := os.ReadFile("compose-up.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"authentication_key=$(generate_secret 32)", "authentication_pepper=$(generate_secret 32)", "AUTHENTICATION_KEY=$authentication_key", "AUTHENTICATION_PEPPER=$authentication_pepper"} {
+		if !strings.Contains(string(raw), required) {
+			t.Errorf("missing %s", required)
+		}
+	}
+}
+
+func TestDeliveryVerifierSuppliesEphemeralAuthenticationSecretsToCompose(t *testing.T) {
+	raw, err := os.ReadFile("verify-delivery.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, required := range []string{
+		"delivery-verification-key-not-for-deployment",
+		"delivery-verification-pepper-not-for-deployment",
+		"SetEnvironmentVariable(\"AUTHENTICATION_KEY\", $previousAuthenticationKey, \"Process\")",
+		"SetEnvironmentVariable(\"AUTHENTICATION_PEPPER\", $previousAuthenticationPepper, \"Process\")",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("delivery verifier must contain %q", required)
+		}
+	}
+}
+
+func TestDockerSmokeSuppliesEphemeralAuthenticationSecretsToCompose(t *testing.T) {
+	raw, err := os.ReadFile("docker-smoke.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(raw)
+	for _, required := range []string{
+		`"AUTHENTICATION_KEY", "AUTHENTICATION_PEPPER"`,
+		`$env:AUTHENTICATION_KEY = New-RandomHex 32`,
+		`$env:AUTHENTICATION_PEPPER = New-RandomHex 32`,
+		`SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")`,
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("docker-smoke.ps1 must contain %q", required)
+		}
+	}
+}

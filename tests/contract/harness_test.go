@@ -143,6 +143,6 @@ func newContractHarness(t *testing.T) contractHarness {
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v", err)
 	}
-	iamhttp.RegisterRoutes(router, application, jwt, iamhttp.HTTPConfig{SecureCookies: true, RefreshTTL: time.Hour})
+	iamhttp.RegisterRoutes(router, application, jwt, iamhttp.HTTPConfig{Authentication: contractAuthentication{app: application}, SecureCookies: true, RefreshTTL: time.Hour})
 	return contractHarness{handler: router, accessToken: accessToken}
 }

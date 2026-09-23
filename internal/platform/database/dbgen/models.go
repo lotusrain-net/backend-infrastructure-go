@@ -24,6 +24,21 @@ type AuditLog struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
+type AuthenticationConsumption struct {
+	CredentialID string             `json:"credential_id"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+}
+
+type AuthenticationSetting struct {
+	Singleton                             bool               `json:"singleton"`
+	PasswordLoginEnabled                  bool               `json:"password_login_enabled"`
+	RegistrationEnabled                   bool               `json:"registration_enabled"`
+	RegistrationEmailVerificationRequired bool               `json:"registration_email_verification_required"`
+	AllowedEmailDomains                   []string           `json:"allowed_email_domains"`
+	BootstrapAdminUserID                  pgtype.UUID        `json:"bootstrap_admin_user_id"`
+	InitializedAt                         pgtype.Timestamptz `json:"initialized_at"`
+}
+
 type Permission struct {
 	ID          pgtype.UUID        `json:"id"`
 	Name        string             `json:"name"`
@@ -104,14 +119,15 @@ type TaskSchedule struct {
 }
 
 type User struct {
-	ID           pgtype.UUID        `json:"id"`
-	Email        string             `json:"email"`
-	Username     string             `json:"username"`
-	PasswordHash string             `json:"password_hash"`
-	DisplayName  string             `json:"display_name"`
-	IsActive     bool               `json:"is_active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ID              pgtype.UUID        `json:"id"`
+	Email           string             `json:"email"`
+	Username        string             `json:"username"`
+	PasswordHash    string             `json:"password_hash"`
+	DisplayName     string             `json:"display_name"`
+	IsActive        bool               `json:"is_active"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	EmailVerifiedAt pgtype.Timestamptz `json:"email_verified_at"`
 }
 
 type UserPreference struct {
@@ -129,4 +145,16 @@ type UserRole struct {
 	UserID    pgtype.UUID        `json:"user_id"`
 	RoleID    pgtype.UUID        `json:"role_id"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type UserSecuritySetting struct {
+	UserID                 pgtype.UUID        `json:"user_id"`
+	Mode                   string             `json:"mode"`
+	TotpSecret             []byte             `json:"totp_secret"`
+	PendingSecret          []byte             `json:"pending_secret"`
+	PendingExpiresAt       pgtype.Timestamptz `json:"pending_expires_at"`
+	LastTotpStep           int64              `json:"last_totp_step"`
+	RecoveryHashes         []string           `json:"recovery_hashes"`
+	RecoveryCodesExpiresAt pgtype.Timestamptz `json:"recovery_codes_expires_at"`
+	Version                int64              `json:"version"`
 }

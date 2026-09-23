@@ -1,7 +1,19 @@
-export type { ApiEnvelope, ApiFieldErrors, PaginatedResponse, PaginationMeta } from "@purplevoid/backend-infrastructure-web/api";
-export type { AccountPreferences, ColorMode, FontScale, RadiusScale, ThemeName } from "@purplevoid/backend-infrastructure-web/theme";
+export type {
+  ApiEnvelope,
+  ApiFieldErrors,
+  PaginatedResponse,
+  PaginationMeta,
+} from "@purplevoid/backend-infrastructure-web/api";
+export type {
+  AccountPreferences,
+  ColorMode,
+  FontScale,
+  RadiusScale,
+  ThemeName,
+} from "@purplevoid/backend-infrastructure-web/theme";
 
 export interface LoginRequest {
+  email_code?: string;
   email: string;
   password: string;
 }
@@ -13,6 +25,7 @@ export interface TokenPair {
 }
 
 export interface User {
+  email_verified_at?: string | null;
   id: string;
   email: string;
   username: string;
@@ -78,7 +91,12 @@ export interface AuditEvent {
   created_at: string;
 }
 
-export type TaskExecutionStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type TaskExecutionStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 export interface TaskExecution {
   id: string;
@@ -135,4 +153,39 @@ export interface ListTaskExecutionsParams {
   size?: number;
   task_type?: string;
   status?: TaskExecutionStatus;
+}
+
+export interface TOTPChallenge {
+  status: "totp_required";
+  challenge_id: string;
+  expires_in: number;
+}
+export interface RegisterRequest {
+  username: string;
+  email: string;
+  password: string;
+  email_code?: string;
+}
+export interface BasicAuthSettings {
+  password_login_enabled: boolean;
+  registration_enabled: boolean;
+  registration_email_verification_required: boolean;
+  allowed_email_domains: string[];
+}
+export type SecurityMode = "default" | "email" | "totp";
+export interface SecuritySettings {
+  recovery_codes_expires_at?: string | null;
+  mode: SecurityMode;
+  totp_enabled: boolean;
+  recovery_codes_remaining: number;
+}
+export interface TOTPEnrollment {
+  secret: string;
+  otpauth_uri: string;
+  expires_in: number;
+}
+export interface SecurityProof {
+  password: string;
+  code?: string;
+  recovery_code?: string;
 }

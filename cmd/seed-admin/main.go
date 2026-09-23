@@ -11,7 +11,6 @@ import (
 	"github.com/jyysy/backend-infrastructure-go/internal/app"
 	"github.com/jyysy/backend-infrastructure-go/internal/config"
 	"github.com/jyysy/backend-infrastructure-go/internal/modules/iam"
-	"github.com/jyysy/backend-infrastructure-go/internal/platform/database/dbgen"
 	platformlogging "github.com/jyysy/backend-infrastructure-go/pkg/logging"
 	database "github.com/jyysy/backend-infrastructure-go/pkg/postgres"
 )
@@ -46,7 +45,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer pool.Close()
-	if err := app.BootstrapAdmin(ctx, dbgen.New(pool), iam.NewPasswordHasher(iam.DefaultArgon2Params()), app.AdminBootstrap{
+	if err := app.SeedBootstrapAdmin(ctx, pool, iam.NewPasswordHasher(iam.DefaultArgon2Params()), app.AdminBootstrap{
 		Email: cfg.AdminEmail, Username: cfg.AdminUsername, Password: cfg.AdminPassword,
 	}); err != nil {
 		return err

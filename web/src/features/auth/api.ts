@@ -3,7 +3,12 @@ import { apiClient } from "@/lib/api/client";
 import { queryClient } from "@/lib/query/client";
 import { clearAuthState, setCurrentUser } from "@/stores/auth-store";
 import { clearActiveThemeState } from "@/stores/theme-store";
-import type { AuthenticatedUser, LoginRequest, TokenPair } from "@/types/api";
+import type {
+  AuthenticatedUser,
+  LoginRequest,
+  TokenPair,
+  TOTPChallenge,
+} from "@/types/api";
 
 export const authKeys = {
   currentUser: () => ["auth", "current-user"] as const,
@@ -21,12 +26,19 @@ export const currentUserQueryOptions = () =>
     queryFn: getCurrentUser,
   });
 
-export async function login(input: LoginRequest): Promise<AuthenticatedUser> {
-  await apiClient.request<TokenPair>("/api/v1/auth/login", {
-    method: "POST",
-    body: input,
-    requiresAuth: false,
-  });
+export async function login(
+  input: LoginRequest,
+): Promise<AuthenticatedUser | TOTPChallenge> {
+  const result = await apiClient.request<TokenPair | TOTPChallenge>(
+    "/api/v1/auth/login",
+    {
+      method: "POST",
+      body: input,
+      requiresAuth: false,
+    },
+  );
+
+  if ("status" in result && result.status === "totp_required") return result;
 
   const user = await getCurrentUser();
   queryClient.setQueryData(authKeys.currentUser(), user);
@@ -53,6 +65,7 @@ export function useCurrentUserQuery() {
 export function useLoginMutation() {
   return useMutation({
     mutationFn: login,
+    gcTime: 0,
   });
 }
 

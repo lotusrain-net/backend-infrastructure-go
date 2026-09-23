@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Declare the cascade once for application and package CSS. Without this,
+ * the application's base reset can be registered after package utilities and
+ * override their padding, margin, border, and control styles. */
+@layer theme, base, components, utilities;
+
 /* Tailwind consumes the semantic layer below. Legacy aliases remain outside
  * this block while the existing screens are migrated to the shared primitives. */
 @theme inline {

@@ -37,12 +37,16 @@ if [ ! -f "$env_file" ]; then
   postgres_password=$(generate_secret 24)
   jwt_secret=$(generate_secret 32)
   admin_password=$(generate_secret 24)
+  authentication_key=$(generate_secret 32)
+  authentication_pepper=$(generate_secret 32)
 
   cp "$example_env_file" "$env_file"
   sed -i \
     -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=$postgres_password|" \
     -e "s|^JWT_SECRET=.*$|JWT_SECRET=$jwt_secret|" \
     -e "s|^ADMIN_PASSWORD=.*$|ADMIN_PASSWORD=$admin_password|" \
+    -e "s|^AUTHENTICATION_KEY=.*$|AUTHENTICATION_KEY=$authentication_key|" \
+    -e "s|^AUTHENTICATION_PEPPER=.*$|AUTHENTICATION_PEPPER=$authentication_pepper|" \
     "$env_file"
   chmod 600 "$env_file"
   printf 'Created .env with generated development-only secrets.\n'

@@ -8,6 +8,10 @@ vi.mock("@/features/preferences/appearance-controls", () => ({
   AppearanceControls: () => <div>外观设置内容</div>,
 }));
 
+vi.mock("@/features/auth/security", () => ({
+  SecurityControls: () => <div>两步验证</div>,
+}));
+
 describe("Profile", () => {
   it("splits profile and appearance into accessible tabs", async () => {
     useAuthStore.setState({
@@ -23,10 +27,14 @@ describe("Profile", () => {
     const user = userEvent.setup();
     render(<Profile />);
 
-    expect(screen.getByRole("tab", { name: "资料" }).getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "资料" }).getAttribute("aria-selected"),
+    ).toBe("true");
     await user.click(screen.getByRole("tab", { name: "外观" }));
 
-    expect(screen.getByRole("tab", { name: "外观" }).getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("tab", { name: "外观" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByText("外观设置内容")).toBeTruthy();
   });
 });

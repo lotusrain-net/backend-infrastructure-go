@@ -23,6 +23,9 @@ type Queries interface {
 	SetUserActive(context.Context, dbgen.SetUserActiveParams) (int64, error)
 	UpdateUserProfile(context.Context, dbgen.UpdateUserProfileParams) (dbgen.User, error)
 	UpdateUserPassword(context.Context, dbgen.UpdateUserPasswordParams) (int64, error)
+	EnsureSecuritySettings(context.Context, pgtype.UUID) error
+	LockSecuritySettings(context.Context, pgtype.UUID) (dbgen.UserSecuritySetting, error)
+	InvalidatePasswordCredentials(context.Context, pgtype.UUID) error
 	ListUserPermissions(context.Context, pgtype.UUID) ([]string, error)
 	ListRoles(context.Context) ([]dbgen.Role, error)
 	ListRolesForUser(context.Context, pgtype.UUID) ([]dbgen.Role, error)
@@ -168,8 +171,21 @@ func (s *Store) UpdateUser(ctx context.Context, id string, input iam.UpdateUserI
 	if err != nil {
 		return iam.User{}, err
 	}
-	row, err := s.queries.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{
-		ID: userID, Email: input.Email, Username: input.Username, DisplayName: input.DisplayName,
+	var row dbgen.User
+	err = s.withLockedSecurity(ctx, userID, func(ctx context.Context, q Queries, security dbgen.UserSecuritySetting) error {
+		current, err := q.GetUserByID(ctx, userID)
+		if err != nil {
+			return mapDBError(err)
+		}
+		// Until an address verification flow exists, preserve the mailbox on
+		// which email second-factor login depends.
+		if current.Email != input.Email && security.Mode == "email" {
+			return iam.ErrAuthenticationForbidden
+		}
+		row, err = q.UpdateUserProfile(ctx, dbgen.UpdateUserProfileParams{
+			ID: userID, Email: input.Email, Username: input.Username, DisplayName: input.DisplayName,
+		})
+		return mapDBError(err)
 	})
 	if err != nil {
 		return iam.User{}, mapDBError(err)
@@ -182,14 +198,34 @@ func (s *Store) UpdateUserPassword(ctx context.Context, id, passwordHash string)
 	if err != nil {
 		return err
 	}
-	rows, err := s.queries.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: userID, PasswordHash: passwordHash})
-	if err != nil {
-		return mapDBError(err)
-	}
-	if rows == 0 {
-		return iam.ErrNotFound
-	}
-	return nil
+	return s.withLockedSecurity(ctx, userID, func(ctx context.Context, q Queries, _ dbgen.UserSecuritySetting) error {
+		// Password and security version commit together. This also invalidates
+		// enrollment authorized by the old password, without removing TOTP.
+		if err := q.InvalidatePasswordCredentials(ctx, userID); err != nil {
+			return mapDBError(err)
+		}
+		rows, err := q.UpdateUserPassword(ctx, dbgen.UpdateUserPasswordParams{ID: userID, PasswordHash: passwordHash})
+		if err != nil {
+			return mapDBError(err)
+		}
+		if rows == 0 {
+			return iam.ErrNotFound
+		}
+		return nil
+	})
+}
+
+func (s *Store) withLockedSecurity(ctx context.Context, id pgtype.UUID, fn func(context.Context, Queries, dbgen.UserSecuritySetting) error) error {
+	return s.withTransaction(ctx, func(ctx context.Context, q Queries) error {
+		if err := q.EnsureSecuritySettings(ctx, id); err != nil {
+			return mapDBError(err)
+		}
+		security, err := q.LockSecuritySettings(ctx, id)
+		if err != nil {
+			return mapDBError(err)
+		}
+		return fn(ctx, q, security)
+	})
 }
 
 func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error {
@@ -496,7 +532,7 @@ func setActive(ctx context.Context, queries Queries, userID pgtype.UUID, active 
 }
 
 func userFromDB(row dbgen.User) iam.User {
-	return iam.User{ID: uuidString(row.ID), Email: row.Email, Username: row.Username, DisplayName: row.DisplayName, PasswordHash: row.PasswordHash, Active: row.IsActive, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
+	return iam.User{EmailVerifiedAt: timePointer(row.EmailVerifiedAt), ID: uuidString(row.ID), Email: row.Email, Username: row.Username, DisplayName: row.DisplayName, PasswordHash: row.PasswordHash, Active: row.IsActive, CreatedAt: row.CreatedAt.Time, UpdatedAt: row.UpdatedAt.Time}
 }
 
 func roleFromDB(row dbgen.Role) iam.Role {
